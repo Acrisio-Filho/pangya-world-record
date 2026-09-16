@@ -17,14 +17,14 @@ async function renderPending(page = 1) {
   PAGE_PEND = page;
   const { rows: pend, total } = await apiPage("listPending", {}, page);
   document.getElementById("pend").innerHTML = pend.map(r => `
-    <div class="card" data-id="${esc(r.id)}">
-      <b>${esc(r.score)}</b> (${esc(r.pang ?? "")} pang) — <b>${esc(mlabel(r.method))}</b> / ${esc(wlabel(r.wind))} — user <a href="profile.html?id=${esc(r.user_id)}">${esc(r.nickname || r.user_id)}</a> — ${esc(r.course_id)}/${esc(r.powerband_id)} (${esc(r.power_value)}) — enviado em ${esc(fmtDate(r.submitted_at))} — ${Number(r.community || 0) === 1 ? `<span class="best">✓ comunidade — decisão final</span>` : r.edit_of ? `<i>proposta de melhoria</i>` : r.edited === "TRUE" ? `<i>edição (reenviado)</i>` : `<i>novo pedido</i>`}
+    <div class="card" data-id="${esc(r.id)}" data-com="${Number(r.community || 0)}">
+      <b>${esc(r.score)}</b> (${esc(r.pang ?? "")} pang) — <b>${esc(mlabel(r.method))}</b> / ${esc(wlabel(r.wind))} — user <a href="profile.html?id=${esc(r.user_id)}">${esc(r.nickname || r.user_id)}</a> — ${esc(r.course_id)}/${esc(r.powerband_id)} (${esc(r.power_value)}) — enviado em ${esc(fmtDate(r.submitted_at))} — ${Number(r.community || 0) === 1 ? `<span class="best">✓ comunidade — decisão final</span>` : Number(r.community || 0) === -1 ? (r.edited === "TRUE" ? `<span class="best">✗ comunidade — revisão pedida</span>` : `<span class="best">✗ comunidade — revisar</span>`) : r.edit_of ? `<i>proposta de melhoria</i>` : r.edited === "TRUE" ? `<i>edição (reenviado)</i>` : `<i>novo pedido</i>`}
       ${r.screenshot_url ? `<a href="${esc(safeUrl(r.screenshot_url))}" target="_blank" rel="noopener" data-by="${esc(r.nickname || r.user_id)}">print</a>` : ""} ${r.video_url ? `<a href="${esc(safeUrl(r.video_url))}" target="_blank" rel="noopener" data-by="${esc(r.nickname || r.user_id)}">vídeo</a>` : ""}
       <div class="filters">
         <select class="nc">${COURSES.map(c => `<option value="${esc(c.id)}" ${c.id === r.course_id ? "selected" : ""}>${esc(c.name)}</option>`).join("")}</select>
         <select class="nb">${BANDS.map(b => `<option value="${esc(b.id)}" ${b.id === r.powerband_id ? "selected" : ""}>${esc(b.label)}</option>`).join("")}</select>
         <input class="nt" placeholder="nota p/ realocação">
-        <button class="ok">Aprovar</button><button class="no">Rejeitar</button>
+        <button class="ok">${Number(r.community || 0) === -1 ? "Confirmar rejeição" : Number(r.community || 0) === 1 ? "Aprovar (final)" : "Aprovar"}</button><button class="no">${Number(r.community || 0) === -1 ? "Reabrir votação" : Number(r.community || 0) === 1 ? "Devolver p/ votação" : "Rejeitar"}</button>
       </div>
     </div>`).join("") || "Nada pendente.";
   document.querySelectorAll("#pend .card").forEach(card => {
@@ -37,8 +37,20 @@ async function renderPending(page = 1) {
   bindPager(pg, renderPending);
 }
 async function validate(id, status, card) {
+  const com = Number(card.dataset.com || 0);
+  if (com !== 0 && status === "rejected") {
+    // Fila da comunidade: "rejeitar" o pedido = mandar de volta p/ votar
+    // (-1 revisar ou 1 final → approved/0, votos zerados; admin-ok intacto).
+    if (!confirm(com === -1 ? "Derrubar a rejeição e reabrir a votação?" : "Devolver p/ votação da comunidade?")) return;
+    const ro = await apiPost("reopenVote", { id });
+    if (ro.erro) { toast(ro.erro, "error"); return; }
+    toast("Voltou p/ votação da comunidade.", "success");
+    card.remove(); reloadAllRecords(PAGE_ALL); return;
+  }
   const r = await apiPost("validateRecord", { id, status, course_id: card.querySelector(".nc").value, powerband_id: card.querySelector(".nb").value, note: card.querySelector(".nt").value });
-  if (r.erro) toast(r.erro, "error"); else { toast("Validado.", "success"); card.remove(); reloadAllRecords(PAGE_ALL); }
+  if (r.erro) { toast(r.erro, "error"); return; }
+  toast(com === -1 ? "Rejeição confirmada (fora do index)." : com === 1 ? "Aprovado (final)." : "Validado.", "success");
+  card.remove(); reloadAllRecords(PAGE_ALL);
 }
 
 // ---- todos os records (editar mesmo depois de aceito) ----
@@ -56,7 +68,7 @@ async function reloadAllRecords(page = 1) {
   ALLRECS = erro ? [] : rows;
   document.getElementById("all-rows").innerHTML = erro ? `<tr><td colspan="14">${esc(erro)}</td></tr>` : rows.map(r => `<tr>
     <td>${esc(r.score)}${r.is_best === "TRUE" ? `<span class="best">BEST</span>` : ""}</td><td>${esc(r.pang ?? "")}</td><td>${esc(mlabel(r.method))}</td><td>${esc(wlabel(r.wind))}</td><td><a href="profile.html?id=${esc(r.user_id)}">${esc(r.nickname || r.user_id)}</a></td><td>${esc(cname(r.course_id))}</td><td>${esc(bname(r.powerband_id))}</td><td>${esc(r.power_value ?? "")}</td><td>${esc(r.status)}</td><td>${esc(comlabel(r.community))}</td><td>${r.edit_of ? "proposta" : "—"}</td><td>${esc(r.note || "")}</td><td>${esc(fmtDate(r.submitted_at))}</td>
-    <td><button class="btn" data-edit-rec="${esc(r.id)}">Editar</button></td></tr>`).join("") || `<tr><td colspan="14">Nada aqui.</td></tr>`;
+    <td><button class="btn" data-edit-rec="${esc(r.id)}">Editar</button>${Number(r.community || 0) === -1 ? ` <button class="btn" data-reopen="${esc(r.id)}">Reabrir votação</button>` : ""}</td></tr>`).join("") || `<tr><td colspan="14">Nada aqui.</td></tr>`;
   const pg = document.getElementById("all-pager");
   pg.innerHTML = pagerHTML(page, total);
   bindPager(pg, reloadAllRecords);
@@ -74,8 +86,14 @@ async function reloadAllRecords(page = 1) {
     document.getElementById("r-video").value = r.video_url || "";
     document.getElementById("r-status").value = r.status;
     document.getElementById("r-note").value = r.note || "";
-    document.getElementById("r-force").checked = Number(r.community || 0) === 1;
+    document.getElementById("r-community").value = String(Number(r.community || 0));
     window.scrollTo(0, document.getElementById("f-record").offsetTop);
+  });
+  document.querySelectorAll("[data-reopen]").forEach(b => b.onclick = async () => {
+    if (!confirm("Reabrir votação? Apaga os votos antigos e o record volta p/ a Comunidade.")) return;
+    const r = await apiPost("reopenVote", { id: b.dataset.reopen });
+    if (r.erro) { toast(r.erro, "error"); return; }
+    toast("Votação reaberta.", "success"); reloadAllRecords(PAGE_ALL);
   });
 }
 function fillRecordFormSelects() {
@@ -168,14 +186,19 @@ document.addEventListener("DOMContentLoaded", () => {
     const id = document.getElementById("r-id").value;
     if (!id) { document.getElementById("msg").textContent = "Escolha um record (Editar) primeiro."; return; }
     const orig = (ALLRECS.find(x => x.id === id) || {}).status;
-    const origCom = Number((ALLRECS.find(x => x.id === id) || {}).community || 0) === 1;
+    const origCom = String(Number((ALLRECS.find(x => x.id === id) || {}).community || 0)); // "-1"|"0"|"1"
     const data = { score: Number(document.getElementById("r-score").value), pang: Number(document.getElementById("r-pang").value || 0), method: document.getElementById("r-method").value, wind: document.getElementById("r-wind").value, course_id: document.getElementById("r-course").value, powerband_id: document.getElementById("r-band").value, power_value: Number(document.getElementById("r-power").value), screenshot_url: document.getElementById("r-shot").value.trim(), video_url: document.getElementById("r-video").value.trim(), note: document.getElementById("r-note").value };
     if (data.screenshot_url && safeUrl(data.screenshot_url) === "#") { toast("URL do print inválida (use http/https).", "error"); return; }
     if (data.video_url && safeUrl(data.video_url) === "#") { toast("URL do vídeo inválida (use http/https).", "error"); return; }
     let r = await apiPost("updateRecord", { id, direct: true, data });
     const st = document.getElementById("r-status").value;
-    const force = document.getElementById("r-force").checked && !origCom;
-    if (!r.erro && !r.proposal && (st !== orig || force)) r = await apiPost("validateRecord", { id, status: st, course_id: data.course_id, powerband_id: data.powerband_id, note: document.getElementById("r-note").value, ...(force ? { community_ok: true } : {}) });
+    const comSel = document.getElementById("r-community").value;
+    if (!r.erro && !r.proposal && (st !== orig || comSel !== origCom)) r = await apiPost("validateRecord", { id, status: st, course_id: data.course_id, powerband_id: data.powerband_id, note: document.getElementById("r-note").value, community: comSel });
+    if (!r.erro && !r.proposal && origCom === "-1" && comSel === "0") {
+      // saiu de rejeitado p/ não votado: limpa os votos antigos (recomeça do zero)
+      const ro = await apiPost("reopenVote", { id });
+      if (ro.erro) { toast(ro.erro, "error"); return; }
+    }
     if (r.erro) { toast(r.erro, "error"); return; }
     toast(r.proposal ? "Proposta enviada — original segue valendo até aprovação total." : "Record salvo.", "success");
     document.getElementById("f-record").reset(); document.getElementById("r-id").value = ""; reloadAllRecords(PAGE_ALL); renderPending(PAGE_PEND);

@@ -67,8 +67,4 @@ Sem deploy: o `Code.gs` real roda em Node com mock do `SpreadsheetApp` sobre CSV
 2. Admin libera em Gerenciar → Usuários (`setUserStatus=active`).
 3. Usuário liberado cadastra record → `pending`. Editar/melhorar um record live cria **proposta** ligada (`edit_of`) — o original segue no index até a proposta passar admin + comunidade, quando os valores são aplicados e a proposta apagada (metade dos pontos).
 4. Admin valida (`listPending`), aprova/rejeita e pode **realocar** ou editar depois (`validateRecord`/`updateRecord`). Aprovar paga +10 pontos (1x).
-5. Aprovado vai p/ Comunidade: usuários liberados com 10+ pontos votam (peso = pontos, inclusive admin). Quórum: peso 50+, 3+ votantes, >2x o contrário. Aprovado (`community=1`) volta p/ `pending` (+25 pontos) p/ final do admin → World Record (index só `community=1`); rejeitado (`community=-1`) continua aprovado pelo admin, fora do index.
-
-### 🌐 Github Pages
-
-Para usar essa aplicação é só [clicar aqui](https://acrisio-filho.github.io/pangya-world-record/).
+5. Aprovado vai p/ Comunidade: usuários liberados com 10+ pontos votam (peso = pontos, inclusive admin). Quórum: peso 50+, 3+ votantes, >2x o contrário. Aprovado (`community=1`) volta p/ `pending` (+25 pontos) p/ final do admin → World Record (index só `community=1`); rejeitado (`community=-1`) volta p/ `pending` como pedido de revisão, fora do index. Rejeição não é final: na fila, rejeitado (`-1`) aprovar confirma e rejeitar reabre; final (`1`) aprovar publica e rejeitar devolve p/ votar (zera os votos, admin-ok intacto). Dono de rejeição confirmada pede reavaliação sem editar (botão em Meus records). Se o dono editar depois do voto, os votos antigos são apagados e a comunidade vota a versão nova.

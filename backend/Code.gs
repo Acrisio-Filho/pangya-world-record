@@ -560,6 +560,7 @@ function _doPost(e) {
         if (payload.method && col("method") > 0) sh.getRange(i + 1, col("method")).setValue(newMethod);
         if (payload.wind && col("wind") > 0) sh.getRange(i + 1, col("wind")).setValue(newWind);
         if (payload.community_ok === true && col("community") > 0) sh.getRange(i + 1, col("community")).setValue("1"); // admin força ok da comunidade
+        if (["-1", "0", "1"].includes(String(payload.community ?? "")) && col("community") > 0) sh.getRange(i + 1, col("community")).setValue(String(payload.community)); // admin define: reprovado / não votado / aprovado
         sh.getRange(i + 1, col("validated_by")).setValue(u.nickname);
         sh.getRange(i + 1, col("validated_at")).setValue(new Date().toISOString());
         sh.getRange(i + 1, col("note")).setValue(String(payload.note || ""));
@@ -671,6 +672,18 @@ function _doPost(e) {
       sh.getRange(ri + 1, col("validated_by")).setValue("");
       sh.getRange(ri + 1, col("validated_at")).setValue("");
       if (col("is_best") > 0) sh.getRange(ri + 1, col("is_best")).setValue("");
+      if (Number(rec.community || 0) !== 0) {
+        // Dado mudou depois do voto: os votos valiam p/ outra versão — zera tudo e volta
+        // p/ não votado. O admin revisa e a comunidade vota de novo no dado atual.
+        // (Apelação sem editar não cai aqui: appealVote não altera dado.)
+        if (col("community") > 0) sh.getRange(ri + 1, col("community")).setValue("0");
+        const vs = _sheet("Votes");
+        const vv = vs.getDataRange().getValues();
+        const vhi = n => vv[0].indexOf(n);
+        for (let i = vv.length - 1; i > 0; i--) {
+          if (String(vv[i][vhi("record_id")]) === String(rec.id)) vs.deleteRow(i + 1);
+        }
+      }
     }
     if (col("edited") > 0) sh.getRange(ri + 1, col("edited")).setValue("TRUE"); // reenviado após edição
     // categoria nova a partir da memória (rec + data): sem releitura da planilha
@@ -749,12 +762,64 @@ function _doPost(e) {
           _addPoints(String(vals[ri][head.indexOf("user_id")]), isProp ? PTS_IMPROVE_COM : PTS_COM_OK);
         }
       } else {
-        // Rejeitado pela comunidade: continua aprovado pelo admin, marcado -1 (fora do index/best)
+        // Rejeitado pela comunidade: volta p/ fila do admin como pedido (pending + -1),
+        // igual ao aprovado — palavra final é do admin (confirma, força ok ou reabre).
+        sh.getRange(ri + 1, col("status")).setValue("pending");
+        sh.getRange(ri + 1, col("validated_by")).setValue("");
+        sh.getRange(ri + 1, col("validated_at")).setValue("");
         if (col("community") > 0) sh.getRange(ri + 1, col("community")).setValue("-1");
       }
       _recalcBest(String(vals[ri][head.indexOf("course_id")]), String(vals[ri][head.indexOf("powerband_id")]), String(vals[ri][head.indexOf("method")] || "com_ajuda"), String(vals[ri][head.indexOf("wind")] || "normal"));
     }
     return _out({ status: "ok", vote: payload.vote, tally: t, decided });
+  }
+
+  if (action === "appealVote") {
+    // Dono pede reavaliação de rejeição confirmada (approved/-1) sem precisar editar nada:
+    // volta p/ pending (fila do admin), comunidade segue -1, marca edited. Só sai do
+    // pending pelo admin (confirma, força ok ou reabre). Sem spam: já na fila não apela.
+    const u = _authUser(e, payload);
+    if (!u) return _out({ erro: "Faça login" });
+    const sh = _sheet("Records");
+    const vals = sh.getDataRange().getValues();
+    const head = vals[0];
+    const col = n => head.indexOf(n) + 1;
+    const ri = vals.findIndex((r, i) => i > 0 && String(r[head.indexOf("id")]) === String(payload.id));
+    if (ri < 0) return _out({ erro: "Record não encontrado" });
+    const rec = _toObj(head, vals[ri]);
+    if (String(rec.user_id) !== String(u.id)) return _out({ erro: "Só o dono pode pedir" });
+    if (String(rec.status) !== "approved" || Number(rec.community || 0) !== -1) return _out({ erro: "Só rejeição confirmada" });
+    sh.getRange(ri + 1, col("status")).setValue("pending");
+    if (col("edited") > 0) sh.getRange(ri + 1, col("edited")).setValue("TRUE");
+    return _out({ status: "ok" });
+  }
+
+  if (action === "reopenVote") {
+    // Admin reabre votação: rejeitado confirmado (-1, approved|pending) ou final pendente (1,
+    // pending) voltam p/ approved/0 (fila da Comunidade) e os votos são apagados.
+    // Record já publicado no index (approved/1) não reabre por aqui (usar o Gerenciar).
+    // Rejeição/aprovação não pagam pontos aqui, então nada a estornar (pts_com só paga 1x).
+    const u = _authUser(e, payload);
+    if (!u || u.role !== "admin") return _out({ erro: "Só admin" });
+    const sh = _sheet("Records");
+    const vals = sh.getDataRange().getValues();
+    const head = vals[0];
+    const col = n => head.indexOf(n) + 1;
+    const ri = vals.findIndex((r, i) => i > 0 && String(r[head.indexOf("id")]) === String(payload.id));
+    if (ri < 0) return _out({ erro: "Record não encontrado" });
+    const st = String(vals[ri][head.indexOf("status")]);
+    const com = Number(vals[ri][head.indexOf("community")] || 0);
+    const ok = (com === -1 && (st === "approved" || st === "pending")) || (com === 1 && st === "pending");
+    if (!ok) return _out({ erro: "Só pedido pendente votado ou rejeitado confirmado" });
+    sh.getRange(ri + 1, col("status")).setValue("approved");
+    sh.getRange(ri + 1, col("community")).setValue("0");
+    const vs = _sheet("Votes");
+    const vv = vs.getDataRange().getValues();
+    const vhi = n => vv[0].indexOf(n);
+    for (let i = vv.length - 1; i > 0; i--) {
+      if (String(vv[i][vhi("record_id")]) === String(payload.id)) vs.deleteRow(i + 1);
+    }
+    return _out({ status: "ok" });
   }
 
   if (action === "upsertBand" || action === "upsertCourse") {

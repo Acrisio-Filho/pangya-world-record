@@ -53,7 +53,13 @@ async function reloadMine() {
   const recs = await apiGet("listRecords", { user_id: me.id, status: "all" });
   document.getElementById("my-rows").innerHTML = recs.map(r => `<tr>
     <td>${esc(r.score)}${r.is_best === "TRUE" ? `<span class="best">BEST</span>` : ""}</td><td>${esc(r.pang ?? "")}</td><td>${esc(mlabel(r.method))}</td><td>${esc(wlabel(r.wind))}</td><td>${esc(cname(r.course_id))}</td><td>${esc(bname(r.powerband_id))}</td><td>${esc(r.power_value ?? "")}</td><td>${esc(r.status)}${r.edit_of ? " (proposta)" : ""}</td><td>${esc(comlabel(r.community))}</td><td>${esc(r.note || "")}</td><td>${esc(fmtDate(r.submitted_at))}</td>
-    <td><button class="btn" data-edit="${esc(r.id)}">Editar</button></td></tr>`).join("") || `<tr><td colspan="12">Sem records.</td></tr>`;
+    <td>${r.status === "approved" && Number(r.community || 0) === -1 ? `<button class="btn" data-appeal="${esc(r.id)}">Pedir reavaliação</button> ` : ""}<button class="btn" data-edit="${esc(r.id)}">Editar</button>${Number(r.community || 0) === -1 ? `<br><i>${r.status === "approved" ? "rejeitado — peça revisão sem editar" : "na fila do admin"}</i>` : ""}</td></tr>`).join("") || `<tr><td colspan="12">Sem records.</td></tr>`;
+  document.querySelectorAll("[data-appeal]").forEach(b => b.onclick = async () => {
+    if (!confirm("Pedir ao admin para reavaliar os votos da comunidade?")) return;
+    const r = await apiPost("appealVote", { id: b.dataset.appeal });
+    if (r.erro) { toast(r.erro, "error"); return; }
+    toast("Pedido enviado ao admin.", "success"); reloadMine();
+  });
   document.querySelectorAll("[data-edit]").forEach(b => b.onclick = () => {
     const r = recs.find(x => x.id === b.dataset.edit);
     document.getElementById("edit-id").value = r.id;
