@@ -101,6 +101,12 @@ function _youtubeOk(u) {
   // canal: só YouTube (youtube.com / youtu.be), outros sites bloqueados
   return /^(https?:\/\/)?(www\.|m\.)?(youtube\.com|youtu\.be)\//i.test(String(u || "").trim());
 }
+function _urlOk(u) {
+  // print/vídeo são opcionais (vazio ok); preenchidos: só http(s), sem espaços/<>"/'
+  // p/ barrar javascript:/data: e quebra de atributo HTML
+  u = String(u == null ? "" : u).trim();
+  return u === "" || /^https?:\/\/[^\s<>"'`]+$/i.test(u);
+}
 function _findUserByEmail(email) {
   const { header, rows } = _rows("Users");
   email = String(email).toLowerCase().trim();
@@ -472,6 +478,8 @@ function _doPost(e) {
     const method = String(payload.method || "");
     if (!METHODS.includes(method)) return _out({ erro: "Informe o método: sem_ajuda ou com_ajuda" });
     if (method === "sem_ajuda" && !String(payload.video_url || "").trim()) return _out({ erro: "Sem ajuda exige vídeo de prova" });
+    if (!_urlOk(payload.screenshot_url)) return _out({ erro: "URL do print inválida (use http/https)" });
+    if (!_urlOk(payload.video_url)) return _out({ erro: "URL do vídeo inválida (use http/https)" });
     const wind = String(payload.wind || "");
     if (!WINDS.includes(wind)) return _out({ erro: "Informe o vento: normal ou natural" });
     if (!Number.isFinite(Number(payload.score))) return _out({ erro: "Score inválido" });
@@ -617,6 +625,8 @@ function _doPost(e) {
     if (data.wind !== undefined && !WINDS.includes(data.wind)) return _out({ erro: "vento inválido" });
     if (data.score !== undefined && !Number.isFinite(Number(data.score))) return _out({ erro: "Score inválido" });
     if (data.power_value !== undefined && !Number.isFinite(Number(data.power_value))) return _out({ erro: "Força inválida" });
+    if (data.screenshot_url !== undefined && !_urlOk(data.screenshot_url)) return _out({ erro: "URL do print inválida (use http/https)" });
+    if (data.video_url !== undefined && !_urlOk(data.video_url)) return _out({ erro: "URL do vídeo inválida (use http/https)" });
     // Gerenciar manda direct:true (só vale p/ admin): edita direto qualquer um, inclusive o próprio.
     // Pelo Meus records todo mundo (inclusive admin) segue a regra comum: live vira proposta.
     const direct = isAdmin && payload.direct === true;

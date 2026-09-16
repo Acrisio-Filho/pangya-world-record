@@ -93,7 +93,9 @@ document.addEventListener("DOMContentLoaded", async () => {
   document.getElementById("method").onchange = syncMethodNotice;
   f.onsubmit = async (e) => {
     e.preventDefault();
-    const base = { course_id: course_id.value, power_value: Number(power_value.value), score: Number(score.value), pang: Number(pang.value || 0), method: method.value, wind: wind.value, screenshot_url: screenshot_url.value, video_url: video_url.value };
+    const base = { course_id: course_id.value, power_value: Number(power_value.value), score: Number(score.value), pang: Number(pang.value || 0), method: method.value, wind: wind.value, screenshot_url: screenshot_url.value.trim(), video_url: video_url.value.trim() };
+    if (base.screenshot_url && safeUrl(base.screenshot_url) === "#") { toast("URL do print inválida (use http/https).", "error"); return; }
+    if (base.video_url && safeUrl(base.video_url) === "#") { toast("URL do vídeo inválida (use http/https).", "error"); return; }
     const id = document.getElementById("edit-id").value;
     const r = id
       ? await apiPost("updateRecord", { id, data: { ...base, ...(powerband_id.value ? { powerband_id: powerband_id.value } : {}) } })

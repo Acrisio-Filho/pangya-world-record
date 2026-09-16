@@ -40,7 +40,7 @@ async function reload(page = 1) {
     const canVote = me && !own;
     return `<div class="card" data-id="${esc(r.id)}">
       <b>${esc(r.score)}</b> (${esc(r.pang ?? "")} pang) — <b>${esc(mlabel(r.method))}</b> / ${esc(wlabel(r.wind))} — <a href="profile.html?id=${esc(r.user_id)}">${esc(r.nickname || r.user_id)}</a> — ${esc(cname(r.course_id))}/${esc(bname(r.powerband_id))} (${esc(r.power_value)})
-      <div>Provas: ${r.video_url ? `<a href="${esc(safeUrl(r.video_url))}" target="_blank">vídeo</a>` : "<i>sem vídeo</i>"} ${r.screenshot_url ? `<a href="${esc(safeUrl(r.screenshot_url))}" target="_blank">print</a>` : "<i>sem print</i>"}</div>
+      <div>Provas: ${r.video_url ? `<a href="${esc(safeUrl(r.video_url))}" target="_blank" rel="noopener" data-by="${esc(r.nickname || r.user_id)}">vídeo</a>` : "<i>sem vídeo</i>"} ${r.screenshot_url ? `<a href="${esc(safeUrl(r.screenshot_url))}" target="_blank" rel="noopener" data-by="${esc(r.nickname || r.user_id)}">print</a>` : "<i>sem print</i>"}</div>
       <div>👍 ${esc(t.approve)} · 👎 ${esc(t.reject)} · ${esc(t.voters)} votantes ${voted ? `· seu voto: <b>${esc(voted)}</b>` : ""}</div>
       <div class="filters">
         ${canVote ? `<button class="ok">Aprovar</button><button class="no">Rejeitar</button>` : `<i>${!me ? "login p/ votar" : own ? "seu record" : ""}</i>`}

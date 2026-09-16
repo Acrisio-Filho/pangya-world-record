@@ -69,7 +69,10 @@ console.log("== submitRecord ==");
 ok(P("submitRecord", { course_id: "blue_water", power_value: 245, score: -25 }).erro, "submit sem login bloqueia");
 const sub = P("submitRecord", { token: userTok, course_id: "blue_water", power_value: 245, score: -25, method: "sem_ajuda", wind: "normal", video_url: "http://v/x" });
 ok(sub.status === "ok", "submit auto-detecta faixa");
-ok(P("submitRecord", { token: userTok, course_id: "blue_water", power_value: 999, score: -25, method: "com_ajuda" }).erro, "submit força fora da faixa bloqueia");
+  ok(P("submitRecord", { token: userTok, course_id: "blue_water", power_value: 999, score: -25, method: "com_ajuda" }).erro, "submit força fora da faixa bloqueia");
+  ok(P("submitRecord", { token: userTok, course_id: "blue_water", power_value: 246, score: -25, method: "com_ajuda", wind: "normal", video_url: "javascript:alert(1)" }).erro, "submit bloqueia video javascript:");
+  ok(P("submitRecord", { token: userTok, course_id: "blue_water", power_value: 246, score: -25, method: "com_ajuda", wind: "normal", screenshot_url: 'https://x.com/a"b' }).erro, "submit bloqueia print com aspas");
+  ok(P("updateRecord", { token: userTok, id: sub.id, data: { video_url: "data:text/html,x" } }).erro, "update bloqueia video data:");
 ok(G("listRecords").length === 0, "público não vê pending");
 ok(G("listPending", { token: userTok }).erro === "Só admin", "listPending bloqueia user comum");
 const pend = G("listPending", { token: adminTok });
@@ -318,7 +321,9 @@ fvm.runInContext(require("fs").readFileSync(require("path").join(__dirname, ".."
 ok(fctx.esc('<script>alert(1)</script>') === "&lt;script&gt;alert(1)&lt;/script&gt;", "esc neutraliza tags");
 ok(fctx.esc('"a&b\'c"') === "&quot;a&amp;b&#39;c&quot;", "esc aspas e &");
 ok(fctx.safeUrl("javascript:alert(1)") === "#", "safeUrl barra javascript:");
-ok(fctx.safeUrl("https://x/y?a=b") === "https://x/y?a=b", "safeUrl mantém https");
+  ok(fctx.safeUrl("https://x/y?a=b") === "https://x/y?a=b", "safeUrl mantém https");
+  ok(fctx.safeUrl('https://x.com/a"b') === "#", "safeUrl barra aspas");
+  ok(fctx.safeUrl("https://x.com/a b") === "#", "safeUrl barra espaço");
 
 console.log(`\n${pass} ok, ${fail} falhas`);
 process.exit(fail ? 1 : 0);

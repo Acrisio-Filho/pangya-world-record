@@ -19,7 +19,7 @@ async function renderPending(page = 1) {
   document.getElementById("pend").innerHTML = pend.map(r => `
     <div class="card" data-id="${esc(r.id)}">
       <b>${esc(r.score)}</b> (${esc(r.pang ?? "")} pang) — <b>${esc(mlabel(r.method))}</b> / ${esc(wlabel(r.wind))} — user <a href="profile.html?id=${esc(r.user_id)}">${esc(r.nickname || r.user_id)}</a> — ${esc(r.course_id)}/${esc(r.powerband_id)} (${esc(r.power_value)}) — enviado em ${esc(fmtDate(r.submitted_at))} — ${Number(r.community || 0) === 1 ? `<span class="best">✓ comunidade — decisão final</span>` : r.edit_of ? `<i>proposta de melhoria</i>` : r.edited === "TRUE" ? `<i>edição (reenviado)</i>` : `<i>novo pedido</i>`}
-      ${r.screenshot_url ? `<a href="${esc(safeUrl(r.screenshot_url))}" target="_blank">print</a>` : ""} ${r.video_url ? `<a href="${esc(safeUrl(r.video_url))}" target="_blank">vídeo</a>` : ""}
+      ${r.screenshot_url ? `<a href="${esc(safeUrl(r.screenshot_url))}" target="_blank" rel="noopener" data-by="${esc(r.nickname || r.user_id)}">print</a>` : ""} ${r.video_url ? `<a href="${esc(safeUrl(r.video_url))}" target="_blank" rel="noopener" data-by="${esc(r.nickname || r.user_id)}">vídeo</a>` : ""}
       <div class="filters">
         <select class="nc">${COURSES.map(c => `<option value="${esc(c.id)}" ${c.id === r.course_id ? "selected" : ""}>${esc(c.name)}</option>`).join("")}</select>
         <select class="nb">${BANDS.map(b => `<option value="${esc(b.id)}" ${b.id === r.powerband_id ? "selected" : ""}>${esc(b.label)}</option>`).join("")}</select>
@@ -169,7 +169,9 @@ document.addEventListener("DOMContentLoaded", () => {
     if (!id) { document.getElementById("msg").textContent = "Escolha um record (Editar) primeiro."; return; }
     const orig = (ALLRECS.find(x => x.id === id) || {}).status;
     const origCom = Number((ALLRECS.find(x => x.id === id) || {}).community || 0) === 1;
-    const data = { score: Number(document.getElementById("r-score").value), pang: Number(document.getElementById("r-pang").value || 0), method: document.getElementById("r-method").value, wind: document.getElementById("r-wind").value, course_id: document.getElementById("r-course").value, powerband_id: document.getElementById("r-band").value, power_value: Number(document.getElementById("r-power").value), screenshot_url: document.getElementById("r-shot").value, video_url: document.getElementById("r-video").value, note: document.getElementById("r-note").value };
+    const data = { score: Number(document.getElementById("r-score").value), pang: Number(document.getElementById("r-pang").value || 0), method: document.getElementById("r-method").value, wind: document.getElementById("r-wind").value, course_id: document.getElementById("r-course").value, powerband_id: document.getElementById("r-band").value, power_value: Number(document.getElementById("r-power").value), screenshot_url: document.getElementById("r-shot").value.trim(), video_url: document.getElementById("r-video").value.trim(), note: document.getElementById("r-note").value };
+    if (data.screenshot_url && safeUrl(data.screenshot_url) === "#") { toast("URL do print inválida (use http/https).", "error"); return; }
+    if (data.video_url && safeUrl(data.video_url) === "#") { toast("URL do vídeo inválida (use http/https).", "error"); return; }
     let r = await apiPost("updateRecord", { id, direct: true, data });
     const st = document.getElementById("r-status").value;
     const force = document.getElementById("r-force").checked && !origCom;

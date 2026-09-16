@@ -72,4 +72,3 @@ Sem deploy: o `Code.gs` real roda em Node com mock do `SpreadsheetApp` sobre CSV
 ### 🌐 Github Pages
 
 Para usar essa aplicação é só [clicar aqui](https://acrisio-filho.github.io/pangya-world-record/).
-

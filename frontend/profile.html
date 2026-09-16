@@ -50,7 +50,7 @@
 let COURSES = [], BANDS = [];
 const cname = (id) => (COURSES.find(x => String(x.id) === String(id)) || {}).name || id;
 const bname = (id) => (BANDS.find(x => String(x.id) === String(id)) || {}).label || id;
-const links = (r) => `${r.video_url ? `<a href="${esc(safeUrl(r.video_url))}" target="_blank">vídeo</a>` : ""} ${r.screenshot_url ? `<a href="${esc(safeUrl(r.screenshot_url))}" target="_blank">print</a>` : ""}`;
+const links = (r, nick) => `${r.video_url ? `<a href="${esc(safeUrl(r.video_url))}" target="_blank" rel="noopener" data-by="${esc(nick)}">vídeo</a>` : ""} ${r.screenshot_url ? `<a href="${esc(safeUrl(r.screenshot_url))}" target="_blank" rel="noopener" data-by="${esc(nick)}">print</a>` : ""}`;
 
 document.addEventListener("DOMContentLoaded", async () => {
   const q = new URLSearchParams(location.search);
@@ -61,17 +61,17 @@ document.addEventListener("DOMContentLoaded", async () => {
   nick.textContent = u.nickname;
   document.getElementById("pts").textContent = `${u.points ?? 0} pontos`;
   if (u.bio) document.getElementById("bio").textContent = u.bio;
-  if (u.youtube_url) document.getElementById("yt").innerHTML = `<a href="${esc(safeUrl(u.youtube_url))}" target="_blank">Canal do YouTube</a>`;
+  if (u.youtube_url) document.getElementById("yt").innerHTML = `<a href="${esc(safeUrl(u.youtube_url))}" target="_blank" rel="noopener" data-by="${esc(u.nickname)}">Canal do YouTube</a>`;
   COURSES = await apiGet("listCourses"); BANDS = await apiGet("listBands");
 
   const ok = await apiGet("listRecords", { user_id: userId, status: "approved" });
   const row = (r) => `<tr>
-    <td>${esc(r.score)}${r.is_best === "TRUE" ? `<span class="best">BEST</span>` : ""}</td><td>${esc(r.pang ?? "")}</td><td>${esc(mlabel(r.method))}</td><td>${esc(wlabel(r.wind))}</td><td>${esc(cname(r.course_id))}</td><td>${esc(bname(r.powerband_id))}</td><td>${esc(r.power_value ?? "")}</td><td>${esc(fmtDate(r.submitted_at))}</td><td>${links(r)}</td></tr>`;
+    <td>${esc(r.score)}${r.is_best === "TRUE" ? `<span class="best">BEST</span>` : ""}</td><td>${esc(r.pang ?? "")}</td><td>${esc(mlabel(r.method))}</td><td>${esc(wlabel(r.wind))}</td><td>${esc(cname(r.course_id))}</td><td>${esc(bname(r.powerband_id))}</td><td>${esc(r.power_value ?? "")}</td><td>${esc(fmtDate(r.submitted_at))}</td><td>${links(r, u.nickname)}</td></tr>`;
   const com = ok.filter(r => Number(r.community || 0) === 1);
   const adm = ok.filter(r => Number(r.community || 0) !== 1);
   document.getElementById("recs-com").innerHTML = com.map(row).join("") || `<tr><td colspan="9">Nenhum.</td></tr>`;
   document.getElementById("recs-ok").innerHTML = adm.map(r => `<tr>
-    <td>${esc(r.score)}${r.is_best === "TRUE" ? `<span class="best">BEST</span>` : ""}</td><td>${esc(r.pang ?? "")}</td><td>${esc(mlabel(r.method))}</td><td>${esc(wlabel(r.wind))}</td><td>${esc(cname(r.course_id))}</td><td>${esc(bname(r.powerband_id))}</td><td>${esc(r.power_value ?? "")}</td><td>${esc(comlabel(r.community))}</td><td>${esc(fmtDate(r.submitted_at))}</td><td>${links(r)}</td></tr>`).join("") || `<tr><td colspan="10">Nenhum.</td></tr>`;
+    <td>${esc(r.score)}${r.is_best === "TRUE" ? `<span class="best">BEST</span>` : ""}</td><td>${esc(r.pang ?? "")}</td><td>${esc(mlabel(r.method))}</td><td>${esc(wlabel(r.wind))}</td><td>${esc(cname(r.course_id))}</td><td>${esc(bname(r.powerband_id))}</td><td>${esc(r.power_value ?? "")}</td><td>${esc(comlabel(r.community))}</td><td>${esc(fmtDate(r.submitted_at))}</td><td>${links(r, u.nickname)}</td></tr>`).join("") || `<tr><td colspan="10">Nenhum.</td></tr>`;
 
   // logs por status: só dono ou admin (o backend também barra os demais)
   const me = getUser();

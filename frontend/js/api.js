@@ -75,10 +75,20 @@ if (typeof window !== "undefined") {
 function esc(s) {
   return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
-// Só permite http(s) em links (barra javascript:).
+// Só permite http(s) em links: barra javascript:/data: e quebra de atributo HTML
+// (espaços, aspas, <>) — usado com esc() nos hrefs de print/vídeo/canal.
 function safeUrl(u) {
   u = String(u || "").trim();
-  return /^https?:\/\//i.test(u) ? u : "#";
+  return /^https?:\/\/[^\s<>"'`]+$/i.test(u) ? u : "#";
+}
+// Links enviados por usuários (provas, canal): confirma antes de abrir,
+// identificando quem forneceu. confirm() exibe texto puro, sem HTML.
+if (typeof document !== "undefined") {
+  document.addEventListener("click", (e) => {
+    const t = e.target && e.target.closest ? e.target.closest("a[data-by]") : null;
+    if (!t || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+    if (!confirm(`Link fornecido por ${t.dataset.by}. Abrir por sua conta e risco?`)) e.preventDefault();
+  });
 }
 // Data ISO → pt-BR curta p/ tabelas.
 function fmtDate(iso) {
