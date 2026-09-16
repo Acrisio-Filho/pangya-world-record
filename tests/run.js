@@ -214,7 +214,7 @@ const cand2 = P("submitRecord", { token: userTok, course_id: "blue_water", power
 P("validateRecord", { token: adminTok, id: cand2.id, status: "approved" });
 voters.forEach((x) => P("vote", { token: x.token, id: cand2.id, vote: "reject" }));
 const rej2 = G("listRecords", { user_id: userId, status: "all", token: userTok }).find((r) => r.id === cand2.id);
-ok(rej2.status === "approved" && Number(rej2.community) === -1, "rejeitado fica approved com flag -1");
+  ok(rej2.status === "pending" && Number(rej2.community) === -1, "rejeitado volta p/ fila do admin com flag -1");
 P("validateRecord", { token: adminTok, id: cand.id, status: "approved" });
 ok(G("listRecords", { community: "1" }).some((r) => r.id === cand.id), "index lista community=1");
 ok(G("listRecords", { user_id: userId, status: "all", token: userTok }).find((r) => r.id === cand.id).is_best === "TRUE", "final do admin marca best");
@@ -222,7 +222,73 @@ ok(!G("listRecords", { community: "1" }).some((r) => r.id === cand2.id), "rejeit
 const t2 = G("tallies", { ids: [cand.id, cand2.id, "inexistente"].join(",") });
 ok(t2[cand.id].approve === 60 && t2[cand.id].voters === 3, "tallies em lote soma aprovações");
 ok(t2[cand2.id].reject === 60 && t2[cand2.id].voters === 3, "tallies em lote soma rejeitos");
-ok(t2["inexistente"].approve === 0 && t2["inexistente"].voters === 0, "tallies id desconhecido zera");
+  ok(t2["inexistente"].approve === 0 && t2["inexistente"].voters === 0, "tallies id desconhecido zera");
+  ok(P("reopenVote", { token: userTok, id: cand2.id }).erro, "reopen bloqueia user comum");
+  ok(P("reopenVote", { token: adminTok, id: cand.id }).erro, "reopen bloqueia record publicado no index");
+  ok(P("reopenVote", { token: adminTok, id: cand2.id }).status === "ok", "admin reabre votação");
+  const re = G("listRecords", { user_id: userId, status: "all", token: userTok }).find((r) => r.id === cand2.id);
+  ok(re.status === "approved" && Number(re.community) === 0, "reaberto volta aprovado p/ community=0");
+  ok(G("tallies", { ids: cand2.id })[cand2.id].voters === 0, "reabrir apaga votos antigos");
+  ok(P("validateRecord", { token: adminTok, id: cand2.id, status: "approved", community: "-1" }).status === "ok", "admin reprova comunidade (-1)");
+  ok(Number(G("listRecords", { user_id: userId, status: "all", token: userTok }).find((r) => r.id === cand2.id).community) === -1, "flag -1 salva pelo admin");
+  ok(P("validateRecord", { token: adminTok, id: cand2.id, status: "approved", community: "0" }).status === "ok", "admin volta p/ não votado (0)");
+
+  console.log("== comunidade: rejeição vira pedido no admin ==");
+  const cand3 = P("submitRecord", { token: userTok, course_id: "blue_water", power_value: 251, score: -16, method: "com_ajuda", wind: "normal" });
+  P("validateRecord", { token: adminTok, id: cand3.id, status: "approved" });
+  voters.forEach((x) => P("vote", { token: x.token, id: cand3.id, vote: "reject" }));
+  const rej3 = G("listRecords", { user_id: userId, status: "all", token: userTok }).find((r) => r.id === cand3.id);
+  ok(rej3.status === "pending" && Number(rej3.community) === -1, "rejeitado volta p/ pending com flag -1");
+  ok(G("listPending", { token: adminTok }).some((r) => r.id === cand3.id), "rejeitado aparece na fila do admin");
+
+  console.log("== comunidade: record do admin reprovado e reavaliação ==");
+  const admRej = P("submitRecord", { token: adminTok, course_id: "blue_lagoon", power_value: 255, score: -19, method: "com_ajuda", wind: "normal" });
+  P("validateRecord", { token: adminTok, id: admRej.id, status: "approved" });
+  ok(P("vote", { token: adminTok, id: admRej.id, vote: "approve" }).erro, "admin não vota no próprio record");
+  voters.forEach((x) => P("vote", { token: x.token, id: admRej.id, vote: "reject" }));
+  const ar = G("listRecords", { user_id: "admin-1", status: "all", token: adminTok }).find((r) => r.id === admRej.id);
+  ok(ar.status === "pending" && Number(ar.community) === -1, "record do admin reprovado vira pedido");
+  ok(P("reopenVote", { token: adminTok, id: admRej.id }).status === "ok", "admin reabre do pending");
+  const ar2 = G("listRecords", { user_id: "admin-1", status: "all", token: adminTok }).find((r) => r.id === admRej.id);
+  ok(ar2.status === "approved" && Number(ar2.community) === 0, "reaberto volta aprovado/0 p/ votar de novo");
+  voters.forEach((x) => P("vote", { token: x.token, id: admRej.id, vote: "approve" }));
+  const ar3 = G("listRecords", { user_id: "admin-1", status: "all", token: adminTok }).find((r) => r.id === admRej.id);
+  ok(ar3.status === "pending" && Number(ar3.community) === 1, "revotação aprova e volta p/ final do admin");
+  ok(P("reopenVote", { token: adminTok, id: admRej.id }).status === "ok", "final devolvido reabre p/ votar");
+  const ar4 = G("listRecords", { user_id: "admin-1", status: "all", token: adminTok }).find((r) => r.id === admRej.id);
+  ok(ar4.status === "approved" && Number(ar4.community) === 0, "devolvido volta aprovado/0");
+  ok(G("tallies", { ids: admRej.id })[admRej.id].voters === 0, "devolução apaga votos");
+
+  console.log("== comunidade: dono edita votado zera votos ==");
+  ok(P("validateRecord", { token: adminTok, id: cand3.id, status: "approved" }).status === "ok", "admin confirma rejeição");
+  const cf = G("listRecords", { user_id: userId, status: "all", token: userTok }).find((r) => r.id === cand3.id);
+  ok(cf.status === "approved" && Number(cf.community) === -1, "rejeição confirmada (approved/-1, fora da fila)");
+  ok(P("updateRecord", { token: userTok, id: cand3.id, data: { video_url: "http://v/novo" } }).status === "ok", "dono edita reprovado");
+  const cf2 = G("listRecords", { user_id: userId, status: "all", token: userTok }).find((r) => r.id === cand3.id);
+  ok(cf2.status === "pending" && Number(cf2.community) === 0 && cf2.edited === "TRUE", "edição em votado zera e volta como novo pedido");
+  ok(G("tallies", { ids: cand3.id })[cand3.id].voters === 0, "votos da versão antiga apagados");
+  ok(G("listPending", { token: adminTok }).some((r) => r.id === cand3.id), "novo pedido na fila do admin");
+
+  console.log("== comunidade: raiva + apelação sem editar ==");
+  ok(P("validateRecord", { token: adminTok, id: cand3.id, status: "approved", community: "-1" }).status === "ok", "admin reprova de novo p/ cenário");
+  ok(P("appealVote", { token: voters[0].token, id: cand3.id }).erro, "só o dono apela");
+  ok(P("appealVote", { token: userTok, id: cand.id }).erro, "sem rejeição confirmada não apela");
+  ok(P("appealVote", { token: userTok, id: cand3.id }).status === "ok", "dono pede reavaliação sem editar");
+  const ap = G("listRecords", { user_id: userId, status: "all", token: userTok }).find((r) => r.id === cand3.id);
+  ok(ap.status === "pending" && Number(ap.community) === -1, "apelação volta p/ fila sem mudar dado");
+  ok(G("listPending", { token: adminTok }).some((r) => r.id === cand3.id), "apelação na fila do admin");
+  ok(P("appealVote", { token: userTok, id: cand3.id }).erro, "sem spam: já na fila não apela");
+  ok(P("updateRecord", { token: userTok, id: cand3.id, data: { pang: 777 } }).status === "ok", "dono edita com apelação pendente");
+  const ap2 = G("listRecords", { user_id: userId, status: "all", token: userTok }).find((r) => r.id === cand3.id);
+  ok(ap2.status === "pending" && Number(ap2.community) === 0 && Number(ap2.pang) === 777, "edição invalida a apelação e volta como novo pedido");
+
+  console.log("== comunidade: reaberto vota a versão nova ==");
+  ok(P("validateRecord", { token: adminTok, id: cand3.id, status: "approved" }).status === "ok", "admin aprova versão nova");
+  voters.forEach((x) => P("vote", { token: x.token, id: cand3.id, vote: "approve" }));
+  const ap3 = G("listRecords", { user_id: userId, status: "all", token: userTok }).find((r) => r.id === cand3.id);
+  ok(ap3.status === "pending" && Number(ap3.community) === 1, "comunidade decide sobre a versão nova");
+  ok(G("tallies", { ids: cand3.id })[cand3.id].approve === 60, "só votos da versão nova contam");
+
 const admCand = P("submitRecord", { token: adminTok, course_id: "blue_water", power_value: 249, score: -14, method: "com_ajuda", wind: "normal" });
 P("validateRecord", { token: adminTok, id: admCand.id, status: "approved", community_ok: true });
 const adminPts = G("getMe", { token: adminTok }).points;

@@ -38,3 +38,7 @@ Detalhe de cada coluna: `docs/SHEETS_SCHEMA.md`.
 | `521af98` | `Records.edited` (`TRUE` em reenvio após edição). Rejeitado pela comunidade mantém `approved` com `community=-1` (não vira `rejected`). |
 | `f3236bb` | `Records.edit_of` (proposta de melhoria ligada ao original; merge na aprovação final, metade dos pontos +5/+12). |
 | `c3ffdb4` | `Users.google_sub` (ID da conta Google; vazio quem nunca usou). Migração: adicione a coluna no fim da aba `Users`. |
+| `8b078f2` | `reopenVote` (só código): admin reabre votação de `-1` (volta aprovado/0, apaga votos). `validateRecord` aceita `community` (`-1`/`0`/`1`). |
+| `7f062e8` | Rejeitado pela comunidade volta p/ `pending` (pedido no admin), não fica `approved`. `reopenVote` aceita `pending`. |
+| `3573239` | `appealVote` (só código): dono pede reavaliação de `approved/-1` sem editar. |
+| `066ed28` | Edição do dono em record votado (`1`/`-1`) zera os votos e volta p/ `0` (só código). |
