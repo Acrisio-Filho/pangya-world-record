@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Comunidade — PangYa World Record</title><link rel="stylesheet" href="css/style.css"></head>
+<body>
+<header><a href="index.html"><strong>PangYa World Record</strong></a><nav id="nav-user"></nav></header>
+<main>
+<h1>Comunidade</h1>
+<p>Records aprovados pelo admin entram em votação. Aprovado pela comunidade volta p/ fila do admin e entra no World Record.</p>
+<p><b>Regras:</b> votam usuários liberados (inclusive admin) com 10+ pontos, fora o próprio record. Pontos: +5/mês de conta (teto 60), +10 por record aceito pelo admin, +25 por record aceito pela comunidade. Peso do voto = pontos. Dá p/ votar de novo e trocar o voto — vale o último, com seu peso atual. Aprova com peso 50+, 3+ votantes e mais que o dobro de rejeitar (vale o contrário p/ rejeitar).</p>
+<p id="my-weight"></p>
+<div id="cands"></div>
+<div id="cands-pager" class="filters"></div>
+</main>
+<footer>© <a href="https://github.com/Acrisio-Filho">Acrisio Filho</a> · <a href="https://github.com/Acrisio-Filho/pangya-world-record/blob/main/LICENSE">MIT</a> · <a href="privacy.html">Privacidade</a></footer>
+<script src="js/config.js"></script><script src="js/api.js"></script><script src="js/auth.js"></script>
+<script>
+let COURSES = [], BANDS = [], PAGE = 1;
+const cname = (id) => (COURSES.find(x => String(x.id) === String(id)) || {}).name || id;
+const bname = (id) => (BANDS.find(x => String(x.id) === String(id)) || {}).label || id;
+
+async function reload(page = 1) {
+  PAGE = page;
+  COURSES = await apiGet("listCourses"); BANDS = await apiGet("listBands");
+  const me = getUser();
+  if (me) {
+    const full = await fetchMe();
+    document.getElementById("my-weight").textContent = full ? `Seu peso: ${full.points ?? 0} pontos.` : "";
+  } else {
+    document.getElementById("my-weight").innerHTML = `<a href="login.html">Faça login para votar.</a>`;
+  }
+  const { rows: cands, total } = await apiPage("listRecords", { status: "approved", community: "0" }, page);
+  const mine = me ? await apiGet("myVotes") : {};
+  // 1 request p/ todos os placares (tallies) em vez de 1 por candidato
+  const tallies = cands.length ? await apiGet("tallies", { ids: cands.map(r => r.id).join(",") }) : {};
+  document.getElementById("cands").innerHTML = cands.map(r => {
+    const t = tallies[r.id] || { approve: 0, reject: 0, voters: 0 };
+    const voted = mine[r.id];
+    const own = me && me.id === r.user_id;
+    const canVote = me && !own;
+    return `<div class="card" data-id="${esc(r.id)}">
+      <b>${esc(r.score)}</b> (${esc(r.pang ?? "")} pang) — <b>${esc(mlabel(r.method))}</b> / ${esc(wlabel(r.wind))} — <a href="profile.html?id=${esc(r.user_id)}">${esc(r.nickname || r.user_id)}</a> — ${esc(cname(r.course_id))}/${esc(bname(r.powerband_id))} (${esc(r.power_value)})
+      <div>Provas: ${r.video_url ? `<a href="${esc(safeUrl(r.video_url))}" target="_blank">vídeo</a>` : "<i>sem vídeo</i>"} ${r.screenshot_url ? `<a href="${esc(safeUrl(r.screenshot_url))}" target="_blank">print</a>` : "<i>sem print</i>"}</div>
+      <div>👍 ${esc(t.approve)} · 👎 ${esc(t.reject)} · ${esc(t.voters)} votantes ${voted ? `· seu voto: <b>${esc(voted)}</b>` : ""}</div>
+      <div class="filters">
+        ${canVote ? `<button class="ok">Aprovar</button><button class="no">Rejeitar</button>` : `<i>${!me ? "login p/ votar" : own ? "seu record" : ""}</i>`}
+      </div>
+    </div>`;
+  }).join("") || "Sem candidatos no momento.";
+  const pg = document.getElementById("cands-pager");
+  pg.innerHTML = pagerHTML(page, total);
+  bindPager(pg, reload);
+  document.querySelectorAll("#cands .card").forEach(card => {
+    const id = card.dataset.id;
+    const ok = card.querySelector(".ok"), no = card.querySelector(".no");
+    if (ok) ok.onclick = () => vote(id, "approve");
+    if (no) no.onclick = () => vote(id, "reject");
+  });
+}
+async function vote(id, v) {
+  const r = await apiPost("vote", { id, vote: v });
+  if (r.erro) { toast(r.erro, "error"); return; }
+  toast(r.decided === "approved" ? "Aprovado pela comunidade! Voltou p/ fila do admin." : r.decided === "rejected" ? "Rejeitado pela comunidade." : "Voto registrado.", "success");
+  reload(PAGE);
+}
+document.addEventListener("DOMContentLoaded", () => reload(1));
+</script>
+</body></html>

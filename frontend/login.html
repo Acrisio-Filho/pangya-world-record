@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Login — PangYa World Record</title><link rel="stylesheet" href="css/style.css"></head>
+<body>
+<header><a href="index.html"><strong>PangYa World Record</strong></a><nav id="nav-user"></nav></header>
+<main><h1>Login</h1>
+<form id="f"><input id="email" type="email" placeholder="Email" required><input id="password" type="password" placeholder="Senha" required><button>Entrar</button></form>
+<p>ou</p>
+<div id="google-btn"></div>
+</main>
+<footer>© <a href="https://github.com/Acrisio-Filho">Acrisio Filho</a> · <a href="https://github.com/Acrisio-Filho/pangya-world-record/blob/main/LICENSE">MIT</a> · <a href="privacy.html">Privacidade</a></footer>
+<script src="https://accounts.google.com/gsi/client" async></script>
+<script src="js/config.js"></script><script src="js/api.js"></script><script src="js/auth.js"></script>
+<script>
+document.getElementById("f").onsubmit = async (e) => {
+  e.preventDefault();
+  const r = await apiPost("login", { email: email.value, password: password.value });
+  if (r.erro) { toast(r.erro, "error"); return; }
+  saveSession(r.token, r.user);
+  toast(`Bem-vindo, ${r.user.nickname}!`, "success");
+  setTimeout(() => location.href = "index.html", 800);
+};
+</script>
+</body></html>

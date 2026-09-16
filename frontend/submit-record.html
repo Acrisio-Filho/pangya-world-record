@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Meus records — PangYa World Record</title><link rel="stylesheet" href="css/style.css"></head>
+<body>
+<header><a href="index.html"><strong>PangYa World Record</strong></a><nav id="nav-user"></nav></header>
+<main>
+<h1>Meus records</h1>
+
+<section>
+<h2>Enviar / editar</h2>
+<p>Edições e novos envios voltam para <i>pending</i> até validação do admin.</p>
+<div class="notice">⚠️ <b>Sem vídeo, dificilmente a comunidade aprova.</b> Envie o link do vídeo da partida — só print quase nunca passa na votação. E jogue com <b>Hole Cup Size x1 (normal)</b>.</div>
+<form id="f">
+<input id="edit-id" type="hidden">
+<select id="course_id" required><option value="">Course...</option></select>
+<input id="power_value" type="number" placeholder="Força (ex: 245)" required>
+<select id="powerband_id"><option value="">Faixa auto (recomendado)</option></select>
+<select id="method" required>
+<option value="">Método...</option>
+<option value="sem_ajuda">Sem ajuda — só o jogo aberto</option>
+<option value="com_ajuda">Com ajuda — com programas</option>
+</select>
+<select id="wind" required>
+<option value="">Vento...</option>
+<option value="normal">Normal</option>
+<option value="natural">Natural</option>
+</select>
+<div class="notice" id="sem-ajuda-notice" style="display:none">🎥 <b>Sem ajuda</b> = só o jogo aberto, sem nada auxiliando. <b>O vídeo de prova é obrigatório</b> e precisa mostrar que foi assim — sem vídeo o record é recusado.</div>
+<input id="score" type="number" placeholder="Score (ex: -25)" required>
+<input id="pang" type="number" placeholder="Pang (ex: 12500)">
+<input id="screenshot_url" placeholder="URL do print (opcional)">
+<input id="video_url" placeholder="URL do vídeo (opcional)">
+<div><button id="save-btn">Enviar p/ validação</button> <button type="button" class="btn-secondary" id="cancel">Limpar</button></div>
+</form>
+</section>
+
+<section>
+<h2>Minha tabela</h2>
+<table><thead><tr><th>Score</th><th>Pang</th><th>Método</th><th>Vento</th><th>Course</th><th>Faixa</th><th>Força</th><th>Status</th><th>Comun.</th><th>Nota do admin</th><th>Enviado em</th><th>Ações</th></tr></thead>
+<tbody id="my-rows"></tbody></table>
+</section>
+</main>
+<footer>© <a href="https://github.com/Acrisio-Filho">Acrisio Filho</a> · <a href="https://github.com/Acrisio-Filho/pangya-world-record/blob/main/LICENSE">MIT</a> · <a href="privacy.html">Privacidade</a></footer>
+<script src="js/config.js"></script><script src="js/api.js"></script><script src="js/auth.js"></script>
+<script>
+let COURSES = [], BANDS = [];
+const cname = (id) => (COURSES.find(x => String(x.id) === String(id)) || {}).name || id;
+const bname = (id) => (BANDS.find(x => String(x.id) === String(id)) || {}).label || id;
+
+async function reloadMine() {
+  const me = getUser();
+  const recs = await apiGet("listRecords", { user_id: me.id, status: "all" });
+  document.getElementById("my-rows").innerHTML = recs.map(r => `<tr>
+    <td>${esc(r.score)}${r.is_best === "TRUE" ? `<span class="best">BEST</span>` : ""}</td><td>${esc(r.pang ?? "")}</td><td>${esc(mlabel(r.method))}</td><td>${esc(wlabel(r.wind))}</td><td>${esc(cname(r.course_id))}</td><td>${esc(bname(r.powerband_id))}</td><td>${esc(r.power_value ?? "")}</td><td>${esc(r.status)}${r.edit_of ? " (proposta)" : ""}</td><td>${esc(comlabel(r.community))}</td><td>${esc(r.note || "")}</td><td>${esc(fmtDate(r.submitted_at))}</td>
+    <td><button class="btn" data-edit="${esc(r.id)}">Editar</button></td></tr>`).join("") || `<tr><td colspan="12">Sem records.</td></tr>`;
+  document.querySelectorAll("[data-edit]").forEach(b => b.onclick = () => {
+    const r = recs.find(x => x.id === b.dataset.edit);
+    document.getElementById("edit-id").value = r.id;
+    document.getElementById("course_id").value = r.course_id;
+    document.getElementById("power_value").value = r.power_value;
+    document.getElementById("powerband_id").value = r.powerband_id;
+    document.getElementById("score").value = r.score;
+    document.getElementById("pang").value = r.pang ?? "";
+    document.getElementById("method").value = r.method || "com_ajuda";
+    document.getElementById("wind").value = r.wind || "normal";
+    document.getElementById("screenshot_url").value = r.screenshot_url || "";
+    document.getElementById("video_url").value = r.video_url || "";
+    document.getElementById("save-btn").textContent = "Salvar (volta p/ pendente)";
+    syncMethodNotice();
+    window.scrollTo(0, 0);
+  });
+}
+
+function resetForm() {
+  document.getElementById("f").reset();
+  document.getElementById("edit-id").value = "";
+  document.getElementById("save-btn").textContent = "Enviar p/ validação";
+  syncMethodNotice();
+}
+
+function syncMethodNotice() {
+  document.getElementById("sem-ajuda-notice").style.display = document.getElementById("method").value === "sem_ajuda" ? "" : "none";
+}
+
+document.addEventListener("DOMContentLoaded", async () => {
+  if (!requireLogin()) return;
+  COURSES = await apiGet("listCourses"); BANDS = await apiGet("listBands");
+  COURSES.forEach(x => course_id.add(new Option(x.name, x.id)));
+  BANDS.forEach(x => powerband_id.add(new Option(x.label, x.id)));
+  await reloadMine();
+  document.getElementById("cancel").onclick = resetForm;
+  document.getElementById("method").onchange = syncMethodNotice;
+  f.onsubmit = async (e) => {
+    e.preventDefault();
+    const base = { course_id: course_id.value, power_value: Number(power_value.value), score: Number(score.value), pang: Number(pang.value || 0), method: method.value, wind: wind.value, screenshot_url: screenshot_url.value, video_url: video_url.value };
+    const id = document.getElementById("edit-id").value;
+    const r = id
+      ? await apiPost("updateRecord", { id, data: { ...base, ...(powerband_id.value ? { powerband_id: powerband_id.value } : {}) } })
+      : await apiPost("submitRecord", { ...base, ...(powerband_id.value ? { powerband_id: powerband_id.value } : {}) });
+    if (r.erro) { toast(r.erro, "error"); return; }
+    toast(r.proposal ? "Melhoria enviada como proposta — o original segue valendo até aprovação total." : id ? "Salvo! Voltou para pendente." : (r.updated ? "Course + força + método já existiam — record atualizado e voltou para pendente." : "Enviado! Aguarde validação do admin."), "success");
+    resetForm(); reloadMine();
+  };
+});
+</script>
+</body></html>

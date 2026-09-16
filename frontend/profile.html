@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Perfil — PangYa World Record</title><link rel="stylesheet" href="css/style.css"></head>
+<body>
+<header><a href="index.html"><strong>PangYa World Record</strong></a><nav id="nav-user"></nav></header>
+<main>
+<h1 id="nick">Perfil</h1>
+<p id="pts"></p>
+<p id="bio"></p>
+<p id="yt"></p>
+
+<section id="sec-edit" style="display:none">
+<h2>Editar perfil</h2>
+<form id="f-edit">
+<input id="e-nickname" placeholder="Nickname (máx 22)">
+<input id="e-bio" placeholder="Info sobre você">
+<input id="e-youtube" placeholder="Canal do YouTube (só YouTube)">
+<button>Salvar perfil</button>
+</form>
+</section>
+
+<section>
+<h2>Aprovados pela comunidade</h2>
+<table><thead><tr><th>Score</th><th>Pang</th><th>Método</th><th>Vento</th><th>Course</th><th>Faixa</th><th>Força</th><th>Enviado em</th><th>Vídeo/Print</th></tr></thead>
+<tbody id="recs-com"></tbody></table>
+</section>
+
+<section>
+<h2>Aprovados pelo admin</h2>
+<table><thead><tr><th>Score</th><th>Pang</th><th>Método</th><th>Vento</th><th>Course</th><th>Faixa</th><th>Força</th><th>Comun.</th><th>Enviado em</th><th>Vídeo/Print</th></tr></thead>
+<tbody id="recs-ok"></tbody></table>
+</section>
+
+<section id="sec-pending" style="display:none">
+<h2>Aguardando validação</h2>
+<table><thead><tr><th>Score</th><th>Pang</th><th>Método</th><th>Vento</th><th>Course</th><th>Faixa</th><th>Força</th><th>Tipo</th><th>Enviado em</th></tr></thead>
+<tbody id="recs-pending"></tbody></table>
+</section>
+
+<section id="sec-rejected" style="display:none">
+<h2>Rejeitados</h2>
+<table><thead><tr><th>Score</th><th>Pang</th><th>Método</th><th>Vento</th><th>Course</th><th>Faixa</th><th>Força</th><th>Nota do admin</th><th>Enviado em</th></tr></thead>
+<tbody id="recs-rejected"></tbody></table>
+</section>
+</main>
+<footer>© <a href="https://github.com/Acrisio-Filho">Acrisio Filho</a> · <a href="https://github.com/Acrisio-Filho/pangya-world-record/blob/main/LICENSE">MIT</a> · <a href="privacy.html">Privacidade</a></footer>
+<script src="js/config.js"></script><script src="js/api.js"></script><script src="js/auth.js"></script>
+<script>
+let COURSES = [], BANDS = [];
+const cname = (id) => (COURSES.find(x => String(x.id) === String(id)) || {}).name || id;
+const bname = (id) => (BANDS.find(x => String(x.id) === String(id)) || {}).label || id;
+const links = (r) => `${r.video_url ? `<a href="${esc(safeUrl(r.video_url))}" target="_blank">vídeo</a>` : ""} ${r.screenshot_url ? `<a href="${esc(safeUrl(r.screenshot_url))}" target="_blank">print</a>` : ""}`;
+
+document.addEventListener("DOMContentLoaded", async () => {
+  const q = new URLSearchParams(location.search);
+  let userId = q.get("id");
+  if (q.has("me")) { const me = await fetchMe(); if (!me) return location.href = "login.html"; userId = me.id; }
+  const u = await apiGet("getUser", { id: userId });
+  if (u.erro) return nick.textContent = u.erro;
+  nick.textContent = u.nickname;
+  document.getElementById("pts").textContent = `${u.points ?? 0} pontos`;
+  if (u.bio) document.getElementById("bio").textContent = u.bio;
+  if (u.youtube_url) document.getElementById("yt").innerHTML = `<a href="${esc(safeUrl(u.youtube_url))}" target="_blank">Canal do YouTube</a>`;
+  COURSES = await apiGet("listCourses"); BANDS = await apiGet("listBands");
+
+  const ok = await apiGet("listRecords", { user_id: userId, status: "approved" });
+  const row = (r) => `<tr>
+    <td>${esc(r.score)}${r.is_best === "TRUE" ? `<span class="best">BEST</span>` : ""}</td><td>${esc(r.pang ?? "")}</td><td>${esc(mlabel(r.method))}</td><td>${esc(wlabel(r.wind))}</td><td>${esc(cname(r.course_id))}</td><td>${esc(bname(r.powerband_id))}</td><td>${esc(r.power_value ?? "")}</td><td>${esc(fmtDate(r.submitted_at))}</td><td>${links(r)}</td></tr>`;
+  const com = ok.filter(r => Number(r.community || 0) === 1);
+  const adm = ok.filter(r => Number(r.community || 0) !== 1);
+  document.getElementById("recs-com").innerHTML = com.map(row).join("") || `<tr><td colspan="9">Nenhum.</td></tr>`;
+  document.getElementById("recs-ok").innerHTML = adm.map(r => `<tr>
+    <td>${esc(r.score)}${r.is_best === "TRUE" ? `<span class="best">BEST</span>` : ""}</td><td>${esc(r.pang ?? "")}</td><td>${esc(mlabel(r.method))}</td><td>${esc(wlabel(r.wind))}</td><td>${esc(cname(r.course_id))}</td><td>${esc(bname(r.powerband_id))}</td><td>${esc(r.power_value ?? "")}</td><td>${esc(comlabel(r.community))}</td><td>${esc(fmtDate(r.submitted_at))}</td><td>${links(r)}</td></tr>`).join("") || `<tr><td colspan="10">Nenhum.</td></tr>`;
+
+  // logs por status: só dono ou admin (o backend também barra os demais)
+  const me = getUser();
+  if (me && (me.id === userId || me.role === "admin")) {    const pend = await apiGet("listRecords", { user_id: userId, status: "pending" });
+    const rej = await apiGet("listRecords", { user_id: userId, status: "rejected" });
+    if (!pend.erro) {
+      document.getElementById("sec-pending").style.display = "";
+      document.getElementById("recs-pending").innerHTML = pend.map(r => `<tr>
+        <td>${esc(r.score)}</td><td>${esc(r.pang ?? "")}</td><td>${esc(mlabel(r.method))}</td><td>${esc(wlabel(r.wind))}</td><td>${esc(cname(r.course_id))}</td><td>${esc(bname(r.powerband_id))}</td><td>${esc(r.power_value ?? "")}</td><td>${r.edit_of ? "proposta" : r.edited === "TRUE" ? "edição" : "novo"}</td><td>${esc(fmtDate(r.submitted_at))}</td></tr>`).join("") || `<tr><td colspan="9">Nada pendente.</td></tr>`;
+    }
+    if (!rej.erro) {
+      document.getElementById("sec-rejected").style.display = "";
+      document.getElementById("recs-rejected").innerHTML = rej.map(r => `<tr>
+        <td>${esc(r.score)}</td><td>${esc(r.pang ?? "")}</td><td>${esc(mlabel(r.method))}</td><td>${esc(wlabel(r.wind))}</td><td>${esc(cname(r.course_id))}</td><td>${esc(bname(r.powerband_id))}</td><td>${esc(r.power_value ?? "")}</td><td>${esc(r.note || "")}</td><td>${esc(fmtDate(r.submitted_at))}</td></tr>`).join("") || `<tr><td colspan="9">Nada rejeitado.</td></tr>`;
+    }
+  }
+  // edição do próprio perfil: só o dono
+  const viewer = getUser();
+  if (viewer && viewer.id === userId) {
+    document.getElementById("sec-edit").style.display = "";
+    document.getElementById("e-nickname").value = u.nickname;
+    document.getElementById("e-bio").value = u.bio || "";
+    document.getElementById("e-youtube").value = u.youtube_url || "";
+    document.getElementById("f-edit").onsubmit = async (e) => {
+      e.preventDefault();
+      if ([...document.getElementById("e-nickname").value.trim()].length > 22) { toast("Nickname até 22 caracteres.", "error"); return; }
+      const r = await apiPost("updateMe", { nickname: document.getElementById("e-nickname").value, bio: document.getElementById("e-bio").value, youtube_url: document.getElementById("e-youtube").value });
+      if (r.erro) { toast(r.erro, "error"); return; }
+      toast("Perfil salvo.", "success");
+      location.reload();
+    };
+  }
+});
+</script>
+</body></html>

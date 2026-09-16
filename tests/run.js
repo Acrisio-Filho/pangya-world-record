@@ -1,0 +1,324 @@
+// Suite local: executa o backend/Code.gs REAL contra os CSVs (editáveis no Calc).
+// Uso: node tests/run.js   (reseta fixtures, roda cenários, exit 1 se falhar)
+require("./setup.js");
+const { loadApi } = require("./gas-mock.js");
+
+const ORIGEM = "TROQUE_ISSO_pwr_123";
+let pass = 0, fail = 0;
+function ok(cond, name, extra = "") {
+  if (cond) { pass++; console.log(`  ok: ${name}`); }
+  else { fail++; console.log(`  FALHOU: ${name} ${extra}`); }
+}
+
+const api = loadApi();
+const G = (action, p = {}) => api.get({ origem: ORIGEM, action, ...p });
+const P = (action, d = {}) => api.post({ origem: ORIGEM, action, ...d });
+
+console.log("== origem / schema ==");
+ok(api.get({ origem: "errada", action: "listBands" }).erro, "GET origem inválida bloqueia");
+ok(api.post({ origem: "errada", action: "login" }).erro, "POST origem inválida bloqueia");
+ok(Array.isArray(G("listBands")) && G("listBands").length === 4, "4 faixas ativas");
+ok(G("listCourses").length === 2, "2 courses ativos");
+
+console.log("== auth ==");
+const reg = P("register", { nickname: "Player1", email: "p1@test.com", password: "abcd" });
+ok(reg.status === "ok" && reg.user.status === "blocked", "register cria user bloqueado");
+ok(P("register", { nickname: "X", email: "p1@test.com", password: "abcd" }).erro, "register email duplicado bloqueia");
+ok(P("register", { nickname: "Y", email: "y@test.com", password: "123" }).erro, "register senha curta bloqueia");
+ok(P("register", { nickname: "a".repeat(23), email: "long@test.com", password: "abcd" }).erro, "register nickname >22 bloqueia");
+ok(P("register", { nickname: "😀".repeat(22), email: "uni@test.com", password: "abcd" }).status === "ok", "register 22 codepoints unicode ok");
+ok(P("register", { nickname: "Bio", email: "bio@test.com", password: "abcd", bio: "sou player", youtube_url: "https://youtube.com/@bio" }).status === "ok", "register com bio/youtube");
+ok(P("register", { nickname: "Bad", email: "bad@test.com", password: "abcd", youtube_url: "https://twitch.tv/x" }).erro, "register bloqueia link não-youtube");
+const login = P("login", { email: "p1@test.com", password: "abcd" });
+ok(login.status === "ok" && login.token, "login retorna token");
+const userTok = login.token;
+const userId = login.user.id;
+ok(P("login", { email: "p1@test.com", password: "errada" }).erro, "login senha errada bloqueia");
+ok(G("getMe", { token: userTok }).nickname === "Player1", "getMe retorna user");
+const adminLogin = P("login", { email: "admin@test.com", password: "admin123" });
+ok(adminLogin.status === "ok", "login admin da fixture");
+  const adminTok = adminLogin.token;
+
+console.log("== login Google ==");
+const g1 = P("loginGoogle", { id_token: "ga" });
+ok(g1.status === "ok" && g1.user.status === "blocked" && g1.token, "loginGoogle cria conta bloqueada");
+const g2 = P("loginGoogle", { id_token: "ga" });
+ok(g2.status === "ok" && g2.user.id === g1.user.id, "mesmo Google entra na mesma conta (sub)");
+const greg = P("register", { nickname: "GNormal", email: "gc@test.com", password: "abcd" });
+const g3 = P("loginGoogle", { id_token: "gc" });
+ok(g3.status === "ok" && g3.user.id === greg.user.id, "conta com email vincula pelo Google");
+ok(P("loginGoogle", { id_token: "gc" }).user.id === greg.user.id, "vinculada entra pelo sub");
+ok(P("loginGoogle", { id_token: "bad" }).erro, "Google inválido bloqueia");
+ok(P("loginGoogle", {}).erro, "sem id_token bloqueia");
+ok(P("updateMe", { token: userTok, nickname: "PlayerUm" }).status === "ok", "updateMe troca nickname");
+ok(P("updateMe", { token: userTok, nickname: "b".repeat(23) }).erro, "updateMe nickname >22 bloqueia");
+ok(P("updateMe", { token: userTok, bio: "novo info", youtube_url: "https://youtu.be/abc" }).status === "ok", "updateMe bio/youtube");
+ok(P("updateMe", { token: userTok, youtube_url: "https://outro.com/x" }).erro, "updateMe bloqueia link não-youtube");
+ok(G("getMe", { token: userTok }).youtube_url === "https://youtu.be/abc", "youtube salvo");
+
+console.log("== liberação de conta ==");
+ok(P("submitRecord", { token: userTok, course_id: "blue_water", power_value: 245, score: -25 }).erro, "submit bloqueado antes da liberação");
+ok(G("listUsers", { token: userTok }).erro === "Só admin", "listUsers bloqueia user comum");
+const users = G("listUsers", { token: adminTok });
+ok(users.some((x) => x.id === userId && x.status === "blocked"), "admin vê conta bloqueada");
+ok(P("setUserStatus", { token: userTok, id: userId, status: "active" }).erro === "Só admin", "setUserStatus bloqueia user comum");
+ok(P("setUserStatus", { token: adminTok, id: "admin-1", status: "blocked" }).erro, "admin não altera a própria conta");
+ok(P("setUserStatus", { token: adminTok, id: userId, status: "active" }).status === "ok", "admin libera conta");
+
+console.log("== submitRecord ==");
+ok(P("submitRecord", { course_id: "blue_water", power_value: 245, score: -25 }).erro, "submit sem login bloqueia");
+const sub = P("submitRecord", { token: userTok, course_id: "blue_water", power_value: 245, score: -25, method: "sem_ajuda", wind: "normal", video_url: "http://v/x" });
+ok(sub.status === "ok", "submit auto-detecta faixa");
+ok(P("submitRecord", { token: userTok, course_id: "blue_water", power_value: 999, score: -25, method: "com_ajuda" }).erro, "submit força fora da faixa bloqueia");
+ok(G("listRecords").length === 0, "público não vê pending");
+ok(G("listPending", { token: userTok }).erro === "Só admin", "listPending bloqueia user comum");
+const pend = G("listPending", { token: adminTok });
+ok(pend.length === 1 && pend[0].powerband_id === "b241_250", "pending com faixa auto 241-250");
+ok(pend[0].nickname === "PlayerUm", "pending inclui nickname");
+
+console.log("== validateRecord (realocação) ==");
+ok(P("validateRecord", { token: userTok, id: sub.id, status: "approved" }).erro === "Só admin", "validate bloqueia user comum");
+ok(P("validateRecord", { token: adminTok, id: sub.id, status: "approved", powerband_id: "b251_260", note: "realocado" }).status === "ok", "admin aprova e realoca faixa");
+const pub = G("listRecords");
+ok(pub.length === 1 && pub[0].powerband_id === "b251_260" && pub[0].note === "realocado", "público vê approved realocado");
+ok(pub[0].nickname === "PlayerUm" && pub[0].user_id === userId, "listRecords inclui nickname p/ link do perfil");
+ok(G("listRecords", { powerband_id: "b251_260" }).length === 1, "filtro por faixa");
+ok(G("listRecords", { nickname: "playerum" }).length === 1, "busca por nickname");
+ok(G("listRecords", { course_id: "blue_water" }).length === 1, "filtro por course");
+
+console.log("== updateRecord ==");
+ok(P("updateRecord", { token: userTok, id: "inexistente", data: { score: -26 } }).erro, "update record inexistente bloqueia");
+ok(P("updateRecord", { token: userTok, id: sub.id, data: { score: -26 } }).status === "ok", "dono edita próprio record");
+const mine = G("listRecords", { user_id: userId, status: "all", token: userTok });
+ok(mine.length === 1 && mine[0].status === "pending" && mine[0].score === "-26", "edição do dono volta p/ pending");
+ok(P("validateRecord", { token: adminTok, id: sub.id, status: "approved" }).status === "ok", "admin re-aprova");
+ok(P("updateRecord", { token: adminTok, id: sub.id, data: { score: -27 } }).status === "ok", "admin edita approved");
+const after = G("listRecords", { user_id: userId, status: "all", token: userTok });
+ok(after[0].status === "approved" && after[0].score === "-27", "edição do admin mantém approved");
+
+console.log("== upsert/delete admin ==");
+ok(P("upsertBand", { token: userTok, data: { label: "x" } }).erro === "Só admin", "upsert bloqueia user comum");
+ok(P("upsertBand", { token: adminTok, id: "b261_270", data: { label: "261-270" } }).updated === true, "upsert atualiza faixa");
+ok(P("upsertCourse", { token: adminTok, data: { name: "Wiz Wiz", active: "TRUE" } }).id, "upsert cria course");
+const dup1 = P("upsertCourse", { token: adminTok, data: { name: "Dup Course", active: "TRUE" } });
+const dup2 = P("upsertCourse", { token: adminTok, data: { name: "  dup course ", active: "TRUE" } });
+ok(dup1.id && dup2.id === dup1.id && dup2.deduped === true, "upsertCourse repetido (casa/espaço) retorna o mesmo id");
+ok(P("upsertCourse", { token: adminTok, id: dup1.id, data: { name: "Wiz Wiz" } }).erro === "Nome já existe", "renomear course p/ nome existente bloqueia");
+const nb = P("upsertBand", { token: adminTok, data: { label: "271-280", min: 271, max: 280, active: "TRUE" } });
+ok(nb.id, "upsert cria faixa");
+const dupb2 = P("upsertBand", { token: adminTok, data: { label: "  271-280 ", min: 271, max: 280, active: "TRUE" } });
+ok(dupb2.id === nb.id && dupb2.deduped === true, "upsertBand repetido retorna o mesmo id");
+ok(P("deleteBand", { token: userTok, id: nb.id }).erro === "Só admin", "delete bloqueia user comum");
+ok(P("deleteBand", { token: adminTok, id: nb.id }).status === "ok", "delete remove faixa sem uso");
+const delOld = P("deleteBand", { token: adminTok, id: "b251_260" });
+ok(delOld.status === "ok" && delOld.realocados === 1, "delete faixa em uso realoca");
+const nc2 = P("upsertCourse", { token: adminTok, data: { name: "Inativo", active: "FALSE" } });
+ok(nc2.id && !G("listCourses").some((c) => c.id === nc2.id), "público não vê course inativo");
+ok(G("listCourses", { token: adminTok, include_inactive: "1" }).some((c) => c.id === nc2.id), "admin lista inativos");
+ok(P("deleteCourse", { token: adminTok, id: nc2.id }).status === "ok", "delete remove course sem uso");
+ok(P("deleteCourse", { token: adminTok, id: "blue_water" }).erro, "delete course em uso bloqueia");
+
+console.log("== submit upsert + delete com realocação ==");
+const dup = P("submitRecord", { token: userTok, course_id: "blue_water", power_value: 245, score: -30, method: "sem_ajuda", wind: "normal", video_url: "http://v/x" });
+ok(dup.updated === true && dup.id === sub.id, "submit course+força iguais atualiza");
+const chk = G("listRecords", { user_id: userId, status: "all", token: userTok }).find((r) => r.id === sub.id);
+ok(chk.status === "pending" && chk.score === "-30", "upsert volta p/ pending");
+ok(chk.edited === "TRUE", "upsert marca editado");
+const pg = P("submitRecord", { token: userTok, course_id: "blue_lagoon", power_value: 250, score: -20, pang: 12500, method: "com_ajuda", wind: "normal" });
+ok(pg.status === "ok" && !pg.updated, "submit com pang cria");
+ok(Number(G("listRecords", { user_id: userId, status: "all", token: userTok }).find((r) => r.id === pg.id).pang) === 12500, "pang salvo");
+ok(P("updateRecord", { token: userTok, id: pg.id, data: { pang: 13000 } }).status === "ok", "update pang");
+const nb2 = P("upsertBand", { token: adminTok, data: { label: "240-260", min: 240, max: 260, active: "TRUE" } });
+ok(nb2.id, "cria faixa que engloba");
+const del = P("deleteBand", { token: adminTok, id: "b241_250" });
+ok(del.status === "ok" && del.realocados === 2, "delete realoca p/ faixa que engloba");
+ok(G("listRecords", { user_id: userId, status: "all", token: userTok }).find((r) => r.id === sub.id).powerband_id === nb2.id, "record realocado");
+const nb3 = P("upsertBand", { token: adminTok, data: { label: "200-210", min: 200, max: 210, active: "TRUE" } });
+const s200 = P("submitRecord", { token: userTok, course_id: "blue_lagoon", power_value: 205, score: -10, method: "com_ajuda", wind: "normal" });
+ok(s200.status === "ok", "submit em faixa isolada");
+ok(P("deleteBand", { token: adminTok, id: nb3.id }).erro, "delete sem faixa que englobe bloqueia");
+
+console.log("== melhor da categoria ==");
+const wb = P("upsertBand", { token: adminTok, data: { label: "280-290", min: 280, max: 290, active: "TRUE" } });
+const ra = P("submitRecord", { token: userTok, course_id: "blue_water", power_value: 281, score: -25, pang: 10000, method: "com_ajuda", wind: "normal" });
+const rb = P("submitRecord", { token: userTok, course_id: "blue_water", power_value: 282, score: -25, pang: 15000, method: "com_ajuda", wind: "normal" });
+P("validateRecord", { token: adminTok, id: ra.id, status: "approved" });
+P("validateRecord", { token: adminTok, id: rb.id, status: "approved" });
+const cat = (id) => G("listRecords", { user_id: userId, status: "all", token: userTok }).find((r) => r.id === id);
+ok(cat(ra.id).is_best !== "TRUE" && cat(rb.id).is_best !== "TRUE", "só admin-ok não é best");
+P("validateRecord", { token: adminTok, id: ra.id, status: "approved", community_ok: true });
+ok(cat(ra.id).is_best === "TRUE", "forçar ok da comunidade marca best");
+P("validateRecord", { token: adminTok, id: rb.id, status: "approved", community_ok: true });
+ok(cat(rb.id).is_best === "TRUE" && cat(ra.id).is_best !== "TRUE", "empate de score: maior pang é best");
+P("updateRecord", { token: adminTok, id: rb.id, data: { score: -20 } });
+ok(cat(ra.id).is_best === "TRUE" && cat(rb.id).is_best !== "TRUE", "edição do admin passa a flag");
+P("updateRecord", { token: adminTok, id: ra.id, data: { note: "recorde insano" } });
+ok(cat(ra.id).note === "recorde insano" && cat(ra.id).status === "approved", "nota do admin salva sem trocar status");
+P("validateRecord", { token: adminTok, id: rb.id, status: "rejected" });
+ok(cat(rb.id).is_best !== "TRUE" && cat(ra.id).is_best === "TRUE", "rejeitado perde a flag");
+const mins = G("listBands").map((b) => Number(b.min));
+ok(mins.length > 1 && mins.every((v, i) => i === 0 || v >= mins[i - 1]), "faixas ordenadas por min");
+ok(G("listBands")[0].label === "200-210", "menor faixa primeiro");
+
+console.log("== privacidade de não-approved ==");
+ok(G("listRecords", { user_id: userId, status: "pending" }).erro, "anônimo não vê pending alheio");
+P("register", { nickname: "Outro", email: "outro@test.com", password: "abcd" });
+const tok2 = P("login", { email: "outro@test.com", password: "abcd" }).token;
+ok(G("listRecords", { user_id: userId, status: "pending", token: tok2 }).erro, "outro user não vê pending alheio");
+ok(G("listRecords", { user_id: userId, status: "pending", token: userTok }).length === 3, "dono vê próprios pendings");
+ok(G("listRecords", { status: "all", token: adminTok }).length === 5, "admin vê tudo");
+
+console.log("== paginação ==");
+const pg1 = G("listRecords", { status: "all", token: adminTok, limit: "2", offset: "0" });
+ok(pg1.total === 5 && pg1.rows.length === 2, "listRecords pagina com total");
+const pg2 = G("listRecords", { status: "all", token: adminTok, limit: "2", offset: "2" });
+ok(pg2.rows.length === 2 && pg2.rows[0].id !== pg1.rows[0].id, "offset avança a página");
+ok(G("listRecords", { status: "all", token: adminTok, limit: "200", offset: "0" }).rows.length === 5, "limit maior que total retorna tudo");
+const pgPend = G("listPending", { token: adminTok, limit: "1", offset: "0" });
+ok(pgPend.total >= 1 && pgPend.rows.length === 1, "listPending pagina");
+const pgUsers = G("listUsers", { token: adminTok, limit: "2", offset: "0" });
+ok(pgUsers.total >= 2 && pgUsers.rows.length === 2, "listUsers pagina");
+ok(Array.isArray(G("listRecords", { status: "approved" })), "sem limit mantém array puro");
+ok(G("listRecords", { status: "all", token: adminTok, best: "1" }).every(r => r.is_best === "TRUE"), "best=1 filtra");
+ok(G("listRecords", { status: "approved", community: "0" }).every(r => Number(r.community || 0) === 0), "community=0 filtra não votados");
+
+console.log("== comunidade: pontos e votação ==");
+const voters = [];
+for (let v = 1; v <= 3; v++) {
+  P("register", { nickname: "Vot" + v, email: `vot${v}@test.com`, password: "abcd" });
+  const lg = P("login", { email: `vot${v}@test.com`, password: "abcd" });
+  P("setUserStatus", { token: adminTok, id: lg.user.id, status: "active" });
+  [0, 1].forEach((i) => {
+    const s = P("submitRecord", { token: lg.token, course_id: "blue_lagoon", power_value: 283 + (v - 1) * 2 + i, score: -10 - i, method: "com_ajuda", wind: "normal" });
+    P("validateRecord", { token: adminTok, id: s.id, status: "approved" });
+  });
+  voters.push({ token: lg.token });
+}
+ok(G("getMe", { token: voters[0].token }).points === 20, "votante soma 20 pontos");
+const cand = P("submitRecord", { token: userTok, course_id: "blue_water", power_value: 246, score: -28, pang: 9000, method: "com_ajuda", wind: "normal" });
+P("validateRecord", { token: adminTok, id: cand.id, status: "approved" });
+ok(G("getMe", { token: userTok }).points >= 10, "dono soma pontos do admin-ok");
+ok(P("vote", { token: userTok, id: cand.id, vote: "approve" }).erro, "dono não vota no próprio");
+ok(P("vote", { token: tok2, id: cand.id, vote: "approve" }).erro, "sem pontos não vota");
+ok(P("vote", { token: voters[0].token, id: cand.id, vote: "approve" }).decided !== "approved", "1 voto não decide");
+P("vote", { token: voters[1].token, id: cand.id, vote: "approve" });
+const v3 = P("vote", { token: voters[2].token, id: cand.id, vote: "approve" });
+ok(v3.decided === "approved" && v3.tally.approve === 60, "3 votos (60) aprovam");
+const fin = G("listRecords", { user_id: userId, status: "all", token: userTok }).find((r) => r.id === cand.id);
+ok(fin.status === "pending" && Number(fin.community) === 1, "aprovado volta p/ pending c/ flag");
+ok(G("getMe", { token: userTok }).points >= 35, "dono soma +25 da comunidade");
+const cand2 = P("submitRecord", { token: userTok, course_id: "blue_water", power_value: 247, score: -15, method: "com_ajuda", wind: "normal" });
+P("validateRecord", { token: adminTok, id: cand2.id, status: "approved" });
+voters.forEach((x) => P("vote", { token: x.token, id: cand2.id, vote: "reject" }));
+const rej2 = G("listRecords", { user_id: userId, status: "all", token: userTok }).find((r) => r.id === cand2.id);
+ok(rej2.status === "approved" && Number(rej2.community) === -1, "rejeitado fica approved com flag -1");
+P("validateRecord", { token: adminTok, id: cand.id, status: "approved" });
+ok(G("listRecords", { community: "1" }).some((r) => r.id === cand.id), "index lista community=1");
+ok(G("listRecords", { user_id: userId, status: "all", token: userTok }).find((r) => r.id === cand.id).is_best === "TRUE", "final do admin marca best");
+ok(!G("listRecords", { community: "1" }).some((r) => r.id === cand2.id), "rejeitado fora do index");
+const t2 = G("tallies", { ids: [cand.id, cand2.id, "inexistente"].join(",") });
+ok(t2[cand.id].approve === 60 && t2[cand.id].voters === 3, "tallies em lote soma aprovações");
+ok(t2[cand2.id].reject === 60 && t2[cand2.id].voters === 3, "tallies em lote soma rejeitos");
+ok(t2["inexistente"].approve === 0 && t2["inexistente"].voters === 0, "tallies id desconhecido zera");
+const admCand = P("submitRecord", { token: adminTok, course_id: "blue_water", power_value: 249, score: -14, method: "com_ajuda", wind: "normal" });
+P("validateRecord", { token: adminTok, id: admCand.id, status: "approved", community_ok: true });
+const adminPts = G("getMe", { token: adminTok }).points;
+const open = P("submitRecord", { token: userTok, course_id: "blue_water", power_value: 248, score: -13, method: "com_ajuda", wind: "normal" });
+P("validateRecord", { token: adminTok, id: open.id, status: "approved" });
+const va = P("vote", { token: adminTok, id: open.id, vote: "approve" });
+ok(adminPts >= 10 && va.status === "ok" && va.tally.approve === adminPts && va.tally.voters === 1 && !va.decided, "admin pode votar (peso = pontos)");
+
+console.log("== método ==");
+const VT = voters[0].token;
+ok(P("submitRecord", { token: VT, course_id: "blue_water", power_value: 289, score: -25 }).erro, "submit sem método bloqueia");
+ok(P("submitRecord", { token: VT, course_id: "blue_water", power_value: 289, score: -25, method: "sem_ajuda" }).erro, "sem_ajuda sem vídeo bloqueia");
+const m1 = P("submitRecord", { token: VT, course_id: "blue_water", power_value: 289, score: -25, method: "sem_ajuda", wind: "normal", video_url: "http://v/m1" });
+const m2 = P("submitRecord", { token: VT, course_id: "blue_water", power_value: 290, score: -26, method: "com_ajuda", wind: "normal" });
+ok(m1.status === "ok" && m2.status === "ok", "submits por método");
+P("validateRecord", { token: adminTok, id: m1.id, status: "approved", community_ok: true });
+P("validateRecord", { token: adminTok, id: m2.id, status: "approved", community_ok: true });
+const mcat = (id) => G("listRecords", { status: "approved", token: adminTok }).find((r) => r.id === id);
+ok(mcat(m1.id).is_best === "TRUE" && mcat(m2.id).is_best === "TRUE", "best separado por método");
+const m3 = P("submitRecord", { token: VT, course_id: "blue_water", power_value: 289, score: -20, method: "com_ajuda", wind: "normal" });
+ok(m3.status === "ok" && !m3.updated && m3.id !== m1.id, "método diferente não é duplicado");
+ok(G("listRecords", { method: "sem_ajuda", token: adminTok }).every((r) => String(r.method) === "sem_ajuda"), "filtro por método");
+
+console.log("== proposta de melhoria ==");
+const prop = P("submitRecord", { token: userTok, course_id: "blue_water", power_value: 246, score: -29, pang: 9500, method: "com_ajuda", wind: "normal", video_url: "http://v/p" });
+ok(prop.proposal === true && prop.id !== cand.id, "melhoria de live vira proposta");
+const orig = () => G("listRecords", { user_id: userId, status: "all", token: userTok }).find((r) => r.id === cand.id);
+ok(orig().score === "-28" && orig().status === "approved", "original segue live");
+const pts0 = G("getMe", { token: userTok }).points;
+P("validateRecord", { token: adminTok, id: prop.id, status: "approved" });
+ok(G("getMe", { token: userTok }).points === pts0 + 5, "aprovar proposta paga metade (+5)");
+voters.forEach((x) => P("vote", { token: x.token, id: prop.id, vote: "approve" }));
+const propAfter = G("listRecords", { user_id: userId, status: "all", token: userTok }).find((r) => r.id === prop.id);
+ok(propAfter.status === "pending" && Number(propAfter.community) === 1, "proposta volta p/ fila");
+ok(G("getMe", { token: userTok }).points === pts0 + 5 + 12, "comunidade paga metade (+12)");
+P("validateRecord", { token: adminTok, id: prop.id, status: "approved" });
+const merged = G("listRecords", { user_id: userId, status: "all", token: userTok });
+ok(!merged.some((r) => r.id === prop.id), "proposta some após merge");
+const fin2 = merged.find((r) => r.id === cand.id);
+ok(fin2.score === "-29" && Number(fin2.pang) === 9500 && fin2.is_best === "TRUE", "original atualizado e best");
+const prop2 = P("updateRecord", { token: userTok, id: cand.id, data: { score: -30 } });
+ok(prop2.proposal === true, "edit de live vira proposta");
+P("validateRecord", { token: adminTok, id: prop2.id, status: "rejected" });
+const afterRej = G("listRecords", { user_id: userId, status: "all", token: userTok });
+ok(afterRej.find((r) => r.id === cand.id).score === "-29", "original intacto após reject");
+ok(afterRej.find((r) => r.id === prop2.id).status === "rejected", "proposta rejeitada no histórico");
+const admRec = P("submitRecord", { token: adminTok, course_id: "blue_lagoon", power_value: 250, score: -18, method: "com_ajuda", wind: "normal" });
+P("validateRecord", { token: adminTok, id: admRec.id, status: "approved", community_ok: true });
+const admProp = P("updateRecord", { token: adminTok, id: admRec.id, data: { score: -19 } });
+ok(admProp.proposal === true, "dono-admin editando live vira proposta");
+ok(G("listRecords", { user_id: "admin-1", status: "all", token: adminTok }).find((r) => r.id === admRec.id).score === "-18", "live do admin intacto");
+ok(P("updateRecord", { token: adminTok, id: cand.id, data: { note: "ok" } }).status === "ok", "admin em terceiro altera direto");
+const d1 = P("updateRecord", { token: adminTok, id: admRec.id, direct: true, data: { score: -17 } });
+const admAfter = G("listRecords", { user_id: "admin-1", status: "all", token: adminTok }).find((r) => r.id === admRec.id);
+ok(d1.status === "ok" && !d1.proposal && admAfter.score === "-17" && admAfter.status === "approved", "direct do Gerenciar altera o próprio");
+ok(P("updateRecord", { token: userTok, id: cand.id, direct: true, data: { score: -32 } }).proposal === true, "direct de comum é ignorado");
+P("validateRecord", { token: adminTok, id: admProp.id, status: "rejected" });
+ok(P("updateRecord", { token: adminTok, id: admProp.id, data: { score: -21 } }).status === "ok", "admin reedita a própria");
+ok(G("listPending", { token: adminTok }).some((r) => r.id === admProp.id), "reedição do admin volta p/ fila");
+
+console.log("== vento ==");
+ok(P("submitRecord", { token: VT, course_id: "blue_water", power_value: 288, score: -25, method: "com_ajuda" }).erro, "submit sem vento bloqueia");
+ok(P("submitRecord", { token: VT, course_id: "blue_water", power_value: 288, score: -25, method: "com_ajuda", wind: "forte" }).erro, "vento inválido bloqueia");
+const w1 = P("submitRecord", { token: VT, course_id: "blue_water", power_value: 287, score: -24, method: "com_ajuda", wind: "natural" });
+const w2 = P("submitRecord", { token: VT, course_id: "blue_water", power_value: 288, score: -27, method: "com_ajuda", wind: "normal" });
+ok(w1.status === "ok" && w2.status === "ok", "submits por vento");
+P("validateRecord", { token: adminTok, id: w1.id, status: "approved", community_ok: true });
+P("validateRecord", { token: adminTok, id: w2.id, status: "approved", community_ok: true });
+const wcat = (id) => G("listRecords", { status: "approved", token: adminTok }).find((r) => r.id === id);
+ok(wcat(w1.id).is_best === "TRUE" && wcat(w2.id).is_best === "TRUE", "best separado por vento");
+const w3 = P("submitRecord", { token: VT, course_id: "blue_water", power_value: 287, score: -20, method: "com_ajuda", wind: "normal" });
+ok(w3.status === "ok" && !w3.updated && w3.id !== w1.id, "vento diferente não é duplicado");
+ok(G("listRecords", { wind: "natural", token: adminTok }).every((r) => String(r.wind) === "natural"), "filtro por vento");
+
+console.log("== blindagens ==");
+const propWind = G("listRecords", { user_id: userId, status: "all", token: userTok }).find((r) => r.id === prop.id || r.edit_of === cand.id);
+ok(!propWind || propWind.wind === "normal", "proposta preserva o vento");
+ok(P("validateRecord", { token: adminTok, id: cand.id, status: "maybe" }).erro === "status inválido", "validate rejeita status inválido");
+ok(P("submitRecord", { token: VT, course_id: "blue_water", power_value: 250, method: "com_ajuda", wind: "normal" }).erro, "submit sem score bloqueia");
+const scoreBefore = G("listRecords", { user_id: "admin-1", status: "all", token: adminTok }).find((r) => r.id === admRec.id).score;
+ok(P("updateRecord", { token: adminTok, id: admRec.id, direct: true, data: { score: -100, method: "x" } }).erro, "update com método inválido bloqueia");
+ok(G("listRecords", { user_id: "admin-1", status: "all", token: adminTok }).find((r) => r.id === admRec.id).score === scoreBefore, "erro não deixa escrita parcial");
+const inact = P("upsertBand", { token: adminTok, data: { label: "inativa", min: 1, max: 2, active: "FALSE" } });
+ok(P("submitRecord", { token: VT, course_id: "blue_water", power_value: 1, score: -5, method: "com_ajuda", wind: "normal", powerband_id: inact.id }).erro === "Faixa desativada", "submit em faixa inativa bloqueia");
+ok(P("deleteBand", { token: adminTok, id: inact.id }).status === "ok", "limpa faixa inativa de teste");
+
+console.log("== logout ==");
+ok(P("logout", { token: userTok }).status === "ok", "logout ok");
+ok(G("getMe", { token: userTok }).erro, "token invalidado após logout");
+
+console.log("== frontend escaping (XSS) ==");
+const fvm = require("vm");
+const fctx = {};
+fvm.createContext(fctx);
+fvm.runInContext(require("fs").readFileSync(require("path").join(__dirname, "..", "frontend", "js", "api.js"), "utf8"), fctx);
+ok(fctx.esc('<script>alert(1)</script>') === "&lt;script&gt;alert(1)&lt;/script&gt;", "esc neutraliza tags");
+ok(fctx.esc('"a&b\'c"') === "&quot;a&amp;b&#39;c&quot;", "esc aspas e &");
+ok(fctx.safeUrl("javascript:alert(1)") === "#", "safeUrl barra javascript:");
+ok(fctx.safeUrl("https://x/y?a=b") === "https://x/y?a=b", "safeUrl mantém https");
+
+console.log(`\n${pass} ok, ${fail} falhas`);
+process.exit(fail ? 1 : 0);

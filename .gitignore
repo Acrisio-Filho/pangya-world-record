@@ -1,0 +1,4 @@
+.ai-jail
+tests/fixtures/
+.env
+session-ses_*.md
