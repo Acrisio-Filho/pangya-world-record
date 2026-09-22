@@ -1,4 +1,8 @@
 .ai-jail
 tests/fixtures/
 .env
+.env.local
+.env.production
 session-ses_*.md
+node_modules
+dist

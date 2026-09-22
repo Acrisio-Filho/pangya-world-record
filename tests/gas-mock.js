@@ -6,7 +6,7 @@ const path = require("path");
 const vm = require("vm");
 const crypto = require("crypto");
 
-const DIR = path.join(__dirname, "fixtures");
+const DIR = process.env.PWR_FIXTURES_DIR || path.join(__dirname, "fixtures");
 const SHEET_FILE = { Users: "Users.csv", Courses: "Courses.csv", PowerBands: "PowerBands.csv", Records: "Records.csv", Sessions: "Sessions.csv", Votes: "Votes.csv" };
 
 const parse = (txt) => txt.trim().split("\n").map((l) => l.split(","));
@@ -39,13 +39,19 @@ function loadApi() {
     getUuid: () => crypto.randomUUID(),
   };
   sandbox.LockService = { getScriptLock: () => ({ waitLock: () => {}, releaseLock: () => {} }) };
-  // tokeninfo do Google: email/sub derivam do id_token (determinístico p/ testes)
+  // tokeninfo do Google: no dev, lê os claims do JWT real para reproduzir
+  // e-mail, sub e foto. Tokens curtos preservam o fallback determinístico dos testes.
   sandbox.UrlFetchApp = {
     fetch: (url) => {
       const m = String(url).match(/id_token=([^&]*)/);
       const tok = m ? decodeURIComponent(m[1]) : "";
+      let claims = {};
+      try {
+        const part = tok.split(".")[1];
+        if (part) claims = JSON.parse(Buffer.from(part.replace(/-/g, "+").replace(/_/g, "/"), "base64").toString("utf8"));
+      } catch { /* token de fixture ou formato inválido: usa fallback abaixo */ }
       const body = tok && tok !== "bad"
-        ? { aud: "TROQUE_ISSO_google_client_id", email_verified: "true", email: tok + "@test.com", sub: "sub-" + tok, exp: "9999999999" }
+        ? { aud: "TROQUE_ISSO_google_client_id", email_verified: "true", email: claims.email || (tok === "nick-conflict" ? "player1@google.test" : tok + "@test.com"), sub: claims.sub || "sub-" + tok, picture: claims.picture || "https://lh3.googleusercontent.com/a/" + tok, exp: "9999999999" }
         : { aud: "outro-cliente", email_verified: "true", email: "x@test.com", sub: "sx", exp: "9999999999" };
       return { getContentText: () => JSON.stringify(body) };
     },

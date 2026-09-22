@@ -1,5 +1,11 @@
 // Suite local: executa o backend/Code.gs REAL contra os CSVs (editáveis no Calc).
-// Uso: node tests/run.js   (reseta fixtures, roda cenários, exit 1 se falhar)
+// Uso: node tests/run.js   (fixtures temporárias isoladas, exit 1 se falhar)
+const fs = require("node:fs");
+const path = require("node:path");
+const os = require("node:os");
+const testFixtures = fs.mkdtempSync(path.join(os.tmpdir(), "pwr-tests-"));
+process.env.PWR_FIXTURES_DIR = testFixtures;
+process.on("exit", () => fs.rmSync(testFixtures, { recursive: true, force: true }));
 require("./setup.js");
 const { loadApi } = require("./gas-mock.js");
 
@@ -21,15 +27,19 @@ ok(Array.isArray(G("listBands")) && G("listBands").length === 4, "4 faixas ativa
 ok(G("listCourses").length === 2, "2 courses ativos");
 
 console.log("== auth ==");
-const reg = P("register", { nickname: "Player1", email: "p1@test.com", password: "abcd" });
+const strongPass = "Pangya1!";
+const reg = P("register", { nickname: "Player1", email: "p1@test.com", password: strongPass });
 ok(reg.status === "ok" && reg.user.status === "blocked", "register cria user bloqueado");
-ok(P("register", { nickname: "X", email: "p1@test.com", password: "abcd" }).erro, "register email duplicado bloqueia");
+ok(P("register", { nickname: "X", email: "p1@test.com", password: strongPass }).erro, "register email duplicado bloqueia");
+ok(P("register", { nickname: "player1", email: "nick-duplicado@test.com", password: strongPass }).erro, "register nickname duplicado bloqueia");
 ok(P("register", { nickname: "Y", email: "y@test.com", password: "123" }).erro, "register senha curta bloqueia");
-ok(P("register", { nickname: "a".repeat(23), email: "long@test.com", password: "abcd" }).erro, "register nickname >22 bloqueia");
-ok(P("register", { nickname: "😀".repeat(22), email: "uni@test.com", password: "abcd" }).status === "ok", "register 22 codepoints unicode ok");
-ok(P("register", { nickname: "Bio", email: "bio@test.com", password: "abcd", bio: "sou player", youtube_url: "https://youtube.com/@bio" }).status === "ok", "register com bio/youtube");
-ok(P("register", { nickname: "Bad", email: "bad@test.com", password: "abcd", youtube_url: "https://twitch.tv/x" }).erro, "register bloqueia link não-youtube");
-const login = P("login", { email: "p1@test.com", password: "abcd" });
+ok(P("register", { nickname: "Y", email: "weak@test.com", password: "pangya12" }).erro, "register exige maiúscula");
+ok(P("register", { nickname: "Y", email: "weak2@test.com", password: "Pangya12" }).erro, "register exige caractere especial");
+ok(P("register", { nickname: "a".repeat(23), email: "long@test.com", password: strongPass }).erro, "register nickname >22 bloqueia");
+ok(P("register", { nickname: "😀".repeat(22), email: "uni@test.com", password: strongPass }).status === "ok", "register 22 codepoints unicode ok");
+ok(P("register", { nickname: "Bio", email: "bio@test.com", password: strongPass, bio: "sou player", youtube_url: "https://youtube.com/@bio" }).status === "ok", "register com bio/youtube");
+ok(P("register", { nickname: "Bad", email: "bad@test.com", password: strongPass, youtube_url: "https://twitch.tv/x" }).erro, "register bloqueia link não-youtube");
+const login = P("login", { email: "p1@test.com", password: strongPass });
 ok(login.status === "ok" && login.token, "login retorna token");
 const userTok = login.token;
 const userId = login.user.id;
@@ -41,15 +51,19 @@ ok(adminLogin.status === "ok", "login admin da fixture");
 
 console.log("== login Google ==");
 const g1 = P("loginGoogle", { id_token: "ga" });
-ok(g1.status === "ok" && g1.user.status === "blocked" && g1.token, "loginGoogle cria conta bloqueada");
+ok(g1.status === "ok" && g1.user.status === "blocked" && g1.token && g1.user.nickname === "ga" && g1.user.avatar_url === "https://lh3.googleusercontent.com/a/ga", "loginGoogle cria conta bloqueada com foto e nickname do e-mail");
 const g2 = P("loginGoogle", { id_token: "ga" });
 ok(g2.status === "ok" && g2.user.id === g1.user.id, "mesmo Google entra na mesma conta (sub)");
-const greg = P("register", { nickname: "GNormal", email: "gc@test.com", password: "abcd" });
+const greg = P("register", { nickname: "GNormal", email: "gc@test.com", password: strongPass });
 const g3 = P("loginGoogle", { id_token: "gc" });
 ok(g3.status === "ok" && g3.user.id === greg.user.id, "conta com email vincula pelo Google");
 ok(P("loginGoogle", { id_token: "gc" }).user.id === greg.user.id, "vinculada entra pelo sub");
 ok(P("loginGoogle", { id_token: "bad" }).erro, "Google inválido bloqueia");
 ok(P("loginGoogle", {}).erro, "sem id_token bloqueia");
+ok(P("loginGoogle", { id_token: "nick-conflict" }).user.nickname === "player2", "nickname Google já usado recebe próximo número");
+ok(P("updateMe", { token: userTok, nickname: "PLAYER2" }).erro, "edição bloqueia nickname duplicado");
+ok(P("changePassword", { token: g1.token, new_password: "SenhaGoogle1!" }).status === "ok", "conta Google define primeira senha sem senha atual");
+ok(P("login", { email: "ga@test.com", password: "SenhaGoogle1!" }).status === "ok", "conta Google entra também com senha definida");
 ok(P("updateMe", { token: userTok, nickname: "PlayerUm" }).status === "ok", "updateMe troca nickname");
 ok(P("updateMe", { token: userTok, nickname: "b".repeat(23) }).erro, "updateMe nickname >22 bloqueia");
 ok(P("updateMe", { token: userTok, bio: "novo info", youtube_url: "https://youtu.be/abc" }).status === "ok", "updateMe bio/youtube");
@@ -67,12 +81,14 @@ ok(P("setUserStatus", { token: adminTok, id: userId, status: "active" }).status 
 
 console.log("== submitRecord ==");
 ok(P("submitRecord", { course_id: "blue_water", power_value: 245, score: -25 }).erro, "submit sem login bloqueia");
-const sub = P("submitRecord", { token: userTok, course_id: "blue_water", power_value: 245, score: -25, method: "sem_ajuda", wind: "normal", video_url: "http://v/x" });
+const sub = P("submitRecord", { token: userTok, course_id: "blue_water", power_value: 245, score: -25, method: "sem_ajuda", wind: "normal", video_url: "https://youtu.be/x" });
 ok(sub.status === "ok", "submit auto-detecta faixa");
   ok(P("submitRecord", { token: userTok, course_id: "blue_water", power_value: 999, score: -25, method: "com_ajuda" }).erro, "submit força fora da faixa bloqueia");
-  ok(P("submitRecord", { token: userTok, course_id: "blue_water", power_value: 246, score: -25, method: "com_ajuda", wind: "normal", video_url: "javascript:alert(1)" }).erro, "submit bloqueia video javascript:");
-  ok(P("submitRecord", { token: userTok, course_id: "blue_water", power_value: 246, score: -25, method: "com_ajuda", wind: "normal", screenshot_url: 'https://x.com/a"b' }).erro, "submit bloqueia print com aspas");
-  ok(P("updateRecord", { token: userTok, id: sub.id, data: { video_url: "data:text/html,x" } }).erro, "update bloqueia video data:");
+ok(P("submitRecord", { token: userTok, course_id: "blue_water", power_value: 246, score: -25, method: "com_ajuda", wind: "normal", video_url: "javascript:alert(1)" }).erro, "submit bloqueia video javascript:");
+ok(P("submitRecord", { token: userTok, course_id: "blue_water", power_value: 246, score: -25, method: "com_ajuda", wind: "normal", video_url: "https://video-invalido.example/prova" }).erro, "submit bloqueia origem de vídeo fora da lista");
+ok(P("submitRecord", { token: userTok, course_id: "blue_water", power_value: 246, score: -25, method: "com_ajuda", wind: "normal", screenshot_url: 'https://x.com/a"b' }).erro, "submit bloqueia print com aspas");
+ok(P("updateRecord", { token: userTok, id: sub.id, data: { video_url: "data:text/html,x" } }).erro, "update bloqueia video data:");
+ok(P("updateRecord", { token: userTok, id: sub.id, data: { video_url: "https://www.twitch.tv/videos/123" } }).status === "ok", "update aceita origem Twitch");
 ok(G("listRecords").length === 0, "público não vê pending");
 ok(G("listPending", { token: userTok }).erro === "Só admin", "listPending bloqueia user comum");
 const pend = G("listPending", { token: adminTok });
@@ -122,7 +138,7 @@ ok(P("deleteCourse", { token: adminTok, id: nc2.id }).status === "ok", "delete r
 ok(P("deleteCourse", { token: adminTok, id: "blue_water" }).erro, "delete course em uso bloqueia");
 
 console.log("== submit upsert + delete com realocação ==");
-const dup = P("submitRecord", { token: userTok, course_id: "blue_water", power_value: 245, score: -30, method: "sem_ajuda", wind: "normal", video_url: "http://v/x" });
+const dup = P("submitRecord", { token: userTok, course_id: "blue_water", power_value: 245, score: -30, method: "sem_ajuda", wind: "normal", video_url: "https://youtu.be/x" });
 ok(dup.updated === true && dup.id === sub.id, "submit course+força iguais atualiza");
 const chk = G("listRecords", { user_id: userId, status: "all", token: userTok }).find((r) => r.id === sub.id);
 ok(chk.status === "pending" && chk.score === "-30", "upsert volta p/ pending");
@@ -153,8 +169,10 @@ P("validateRecord", { token: adminTok, id: ra.id, status: "approved", community_
 ok(cat(ra.id).is_best === "TRUE", "forçar ok da comunidade marca best");
 P("validateRecord", { token: adminTok, id: rb.id, status: "approved", community_ok: true });
 ok(cat(rb.id).is_best === "TRUE" && cat(ra.id).is_best !== "TRUE", "empate de score: maior pang é best");
+ok(P("validateRecord", { token: adminTok, id: rb.id, status: "rejected", community: "1" }).status === "ok", "admin aprova comunidade manualmente");
+ok(cat(rb.id).status === "approved" && Number(cat(rb.id).community) === 1 && cat(rb.id).is_best === "TRUE", "aprovação manual publica e recalcula BEST");
 P("updateRecord", { token: adminTok, id: rb.id, data: { score: -20 } });
-ok(cat(ra.id).is_best === "TRUE" && cat(rb.id).is_best !== "TRUE", "edição do admin passa a flag");
+ok(cat(ra.id).is_best === "TRUE" && cat(rb.id).is_best !== "TRUE", "edição do admin preserva melhor da categoria");
 P("updateRecord", { token: adminTok, id: ra.id, data: { note: "recorde insano" } });
 ok(cat(ra.id).note === "recorde insano" && cat(ra.id).status === "approved", "nota do admin salva sem trocar status");
 P("validateRecord", { token: adminTok, id: rb.id, status: "rejected" });
@@ -165,8 +183,8 @@ ok(G("listBands")[0].label === "200-210", "menor faixa primeiro");
 
 console.log("== privacidade de não-approved ==");
 ok(G("listRecords", { user_id: userId, status: "pending" }).erro, "anônimo não vê pending alheio");
-P("register", { nickname: "Outro", email: "outro@test.com", password: "abcd" });
-const tok2 = P("login", { email: "outro@test.com", password: "abcd" }).token;
+P("register", { nickname: "Outro", email: "outro@test.com", password: strongPass });
+const tok2 = P("login", { email: "outro@test.com", password: strongPass }).token;
 ok(G("listRecords", { user_id: userId, status: "pending", token: tok2 }).erro, "outro user não vê pending alheio");
 ok(G("listRecords", { user_id: userId, status: "pending", token: userTok }).length === 3, "dono vê próprios pendings");
 ok(G("listRecords", { status: "all", token: adminTok }).length === 5, "admin vê tudo");
@@ -188,8 +206,8 @@ ok(G("listRecords", { status: "approved", community: "0" }).every(r => Number(r.
 console.log("== comunidade: pontos e votação ==");
 const voters = [];
 for (let v = 1; v <= 3; v++) {
-  P("register", { nickname: "Vot" + v, email: `vot${v}@test.com`, password: "abcd" });
-  const lg = P("login", { email: `vot${v}@test.com`, password: "abcd" });
+  P("register", { nickname: "Vot" + v, email: `vot${v}@test.com`, password: strongPass });
+  const lg = P("login", { email: `vot${v}@test.com`, password: strongPass });
   P("setUserStatus", { token: adminTok, id: lg.user.id, status: "active" });
   [0, 1].forEach((i) => {
     const s = P("submitRecord", { token: lg.token, course_id: "blue_lagoon", power_value: 283 + (v - 1) * 2 + i, score: -10 - i, method: "com_ajuda", wind: "normal" });
@@ -263,7 +281,7 @@ ok(t2[cand2.id].reject === 60 && t2[cand2.id].voters === 3, "tallies em lote som
   ok(P("validateRecord", { token: adminTok, id: cand3.id, status: "approved" }).status === "ok", "admin confirma rejeição");
   const cf = G("listRecords", { user_id: userId, status: "all", token: userTok }).find((r) => r.id === cand3.id);
   ok(cf.status === "approved" && Number(cf.community) === -1, "rejeição confirmada (approved/-1, fora da fila)");
-  ok(P("updateRecord", { token: userTok, id: cand3.id, data: { video_url: "http://v/novo" } }).status === "ok", "dono edita reprovado");
+  ok(P("updateRecord", { token: userTok, id: cand3.id, data: { video_url: "https://youtu.be/novo" } }).status === "ok", "dono edita reprovado");
   const cf2 = G("listRecords", { user_id: userId, status: "all", token: userTok }).find((r) => r.id === cand3.id);
   ok(cf2.status === "pending" && Number(cf2.community) === 0 && cf2.edited === "TRUE", "edição em votado zera e volta como novo pedido");
   ok(G("tallies", { ids: cand3.id })[cand3.id].voters === 0, "votos da versão antiga apagados");
@@ -301,7 +319,7 @@ console.log("== método ==");
 const VT = voters[0].token;
 ok(P("submitRecord", { token: VT, course_id: "blue_water", power_value: 289, score: -25 }).erro, "submit sem método bloqueia");
 ok(P("submitRecord", { token: VT, course_id: "blue_water", power_value: 289, score: -25, method: "sem_ajuda" }).erro, "sem_ajuda sem vídeo bloqueia");
-const m1 = P("submitRecord", { token: VT, course_id: "blue_water", power_value: 289, score: -25, method: "sem_ajuda", wind: "normal", video_url: "http://v/m1" });
+const m1 = P("submitRecord", { token: VT, course_id: "blue_water", power_value: 289, score: -25, method: "sem_ajuda", wind: "normal", video_url: "https://youtu.be/m1" });
 const m2 = P("submitRecord", { token: VT, course_id: "blue_water", power_value: 290, score: -26, method: "com_ajuda", wind: "normal" });
 ok(m1.status === "ok" && m2.status === "ok", "submits por método");
 P("validateRecord", { token: adminTok, id: m1.id, status: "approved", community_ok: true });
@@ -313,7 +331,7 @@ ok(m3.status === "ok" && !m3.updated && m3.id !== m1.id, "método diferente não
 ok(G("listRecords", { method: "sem_ajuda", token: adminTok }).every((r) => String(r.method) === "sem_ajuda"), "filtro por método");
 
 console.log("== proposta de melhoria ==");
-const prop = P("submitRecord", { token: userTok, course_id: "blue_water", power_value: 246, score: -29, pang: 9500, method: "com_ajuda", wind: "normal", video_url: "http://v/p" });
+const prop = P("submitRecord", { token: userTok, course_id: "blue_water", power_value: 246, score: -29, pang: 9500, method: "com_ajuda", wind: "normal", video_url: "https://youtu.be/p" });
 ok(prop.proposal === true && prop.id !== cand.id, "melhoria de live vira proposta");
 const orig = () => G("listRecords", { user_id: userId, status: "all", token: userTok }).find((r) => r.id === cand.id);
 ok(orig().score === "-28" && orig().status === "approved", "original segue live");
@@ -375,21 +393,45 @@ const inact = P("upsertBand", { token: adminTok, data: { label: "inativa", min: 
 ok(P("submitRecord", { token: VT, course_id: "blue_water", power_value: 1, score: -5, method: "com_ajuda", wind: "normal", powerband_id: inact.id }).erro === "Faixa desativada", "submit em faixa inativa bloqueia");
 ok(P("deleteBand", { token: adminTok, id: inact.id }).status === "ok", "limpa faixa inativa de teste");
 
+console.log("== integridade de edição e reenvio ==");
+const draftCheck = P("submitRecord", { token: VT, course_id: "blue_lagoon", power_value: 246, score: -10, method: "sem_ajuda", wind: "normal", video_url: "https://youtu.be/proof" });
+const draftSnapshot = () => G("listRecords", { token: VT, user_id: G("getMe", { token: VT }).id, status: "all" }).find(r => r.id === draftCheck.id);
+const beforeInvalid = JSON.stringify(draftSnapshot());
+ok(P("updateRecord", { token: VT, id: draftCheck.id, data: { score: -50, video_url: "" } }).erro, "edição sem vídeo obrigatório bloqueia");
+ok(JSON.stringify(draftSnapshot()) === beforeInvalid, "vídeo inválido não deixa score alterado");
+ok(P("updateRecord", { token: VT, id: draftCheck.id, data: { score: -50, power_value: 99999 } }).erro, "edição com força sem faixa bloqueia");
+ok(JSON.stringify(draftSnapshot()) === beforeInvalid, "faixa inválida não deixa escrita parcial");
+ok(P("submitRecord", { token: VT, course_id: "inexistente", power_value: 246, score: -10, method: "com_ajuda", wind: "normal" }).erro, "campo inexistente não aceita record");
+ok(P("submitRecord", { token: VT, course_id: "blue_water", power_value: 246, score: null, method: "com_ajuda", wind: "normal" }).erro, "score nulo não vira zero");
+P("validateRecord", { token: adminTok, id: draftCheck.id, status: "approved" });
+P("vote", { token: voters[1].token, id: draftCheck.id, vote: "approve" });
+ok(G("tally", { id: draftCheck.id }).voters === 1, "versão original recebeu voto");
+P("submitRecord", { token: VT, course_id: "blue_lagoon", power_value: 246, score: -11, method: "sem_ajuda", wind: "normal", video_url: "https://youtu.be/new-proof" });
+ok(G("tally", { id: draftCheck.id }).voters === 0, "reenvio invalida votos da versão anterior");
+ok(Number(draftSnapshot().community) === 0 && draftSnapshot().status === "pending", "reenvio exige nova revisão");
+ok(G("toString").erro && P("constructor").erro, "roteador não executa propriedades herdadas");
+
 console.log("== logout ==");
+ok(P("changePassword", { token: userTok, current_password: "errada", new_password: "NovaSenha1!" }).erro, "troca de senha exige senha atual");
+ok(P("changePassword", { token: userTok, current_password: strongPass, new_password: "NovaSenha1!" }).status === "ok", "troca de senha atualiza hash");
+ok(P("login", { email: "p1@test.com", password: "NovaSenha1!" }).status === "ok", "login aceita nova senha");
+const resetReg = P("register", { nickname: "ResetSenha", email: "reset@test.com", password: strongPass });
+const resetToken = P("login", { email: "reset@test.com", password: strongPass }).token;
+ok(P("adminResetPassword", { token: userTok, id: resetReg.user.id, new_password: "AdminNova1!" }).erro, "reset admin bloqueia user comum");
+ok(P("adminResetPassword", { token: adminTok, id: resetReg.user.id, new_password: "AdminNova1!" }).status === "ok", "admin redefine senha de usuário");
+ok(P("login", { email: "reset@test.com", password: strongPass }).erro && P("login", { email: "reset@test.com", password: "AdminNova1!" }).status === "ok", "reset invalida senha anterior");
+ok(G("getMe", { token: resetToken }).erro, "reset encerra sessões do usuário");
+const deleteReg = P("register", { nickname: "Excluir", email: "delete@test.com", password: strongPass });
+const deleteTok = P("login", { email: "delete@test.com", password: strongPass }).token;
+ok(P("deleteMe", { token: deleteTok, email: "outro@test.com", password: strongPass }).erro, "excluir exige e-mail da própria conta");
+ok(P("deleteMe", { token: deleteTok, email: "delete@test.com", password: strongPass }).status === "ok", "usuário exclui a própria conta");
+ok(!G("listUsers", { token: adminTok }).some((u) => u.id === deleteReg.user.id), "conta excluída some da lista admin");
 ok(P("logout", { token: userTok }).status === "ok", "logout ok");
 ok(G("getMe", { token: userTok }).erro, "token invalidado após logout");
 
 console.log("== frontend escaping (XSS) ==");
-const fvm = require("vm");
-const fctx = {};
-fvm.createContext(fctx);
-fvm.runInContext(require("fs").readFileSync(require("path").join(__dirname, "..", "frontend", "js", "api.js"), "utf8"), fctx);
-ok(fctx.esc('<script>alert(1)</script>') === "&lt;script&gt;alert(1)&lt;/script&gt;", "esc neutraliza tags");
-ok(fctx.esc('"a&b\'c"') === "&quot;a&amp;b&#39;c&quot;", "esc aspas e &");
-ok(fctx.safeUrl("javascript:alert(1)") === "#", "safeUrl barra javascript:");
-  ok(fctx.safeUrl("https://x/y?a=b") === "https://x/y?a=b", "safeUrl mantém https");
-  ok(fctx.safeUrl('https://x.com/a"b') === "#", "safeUrl barra aspas");
-  ok(fctx.safeUrl("https://x.com/a b") === "#", "safeUrl barra espaço");
+const { execFileSync } = require("node:child_process");
+execFileSync(process.execPath, ["--test", "tests/frontend.test.mjs", "tests/domain.test.js"], { stdio: "inherit" });
 
 console.log(`\n${pass} ok, ${fail} falhas`);
 process.exit(fail ? 1 : 0);

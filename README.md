@@ -1,74 +1,87 @@
-# PangYa World Record
+# Pangya World Record
 
-Site estático (GitHub Pages) + API (Google Apps Script) + Banco (Google Sheets privada).
+Ranking da comunidade de Pangya, com frontend Vue 3 e um backend modular implantado como uma única aplicação Google Apps Script. Os dados continuam em uma planilha privada Google Sheets, compatível com o projeto [original de Acrisio Filho](https://acrisio-filho.github.io/pangya-world-record/).
 
-Escolhas do projeto:
-- **Stack:** `Sheets + Apps Script`
-- **Faixas de força:** configuráveis pelo admin (ex: 230-240, 241-250, 251-260, 261-270 — pode mudar sem mexer no código)
+## Rodar localmente
 
-## Estrutura
+Requer Node.js 22 e npm. Na raiz:
 
-```
-frontend/          # site estático p/ GitHub Pages
-  index.html       # lista records + pesquisa (course + faixa + nickname)
-  login.html       # login
-  register.html    # cadastro de usuário
-  submit-record.html # meus records: tabela + enviar/editar (volta p/ pending)
-  profile.html     # página do usuário e seus records (?id= ou ?me=1)
-  admin.html       # validar / editar records / gerenciar usuários, courses e faixas (só admin)
-  community.html   # votação da comunidade (approved do admin)
-  css/style.css
-  js/config.js     # URL_API + ORIGEM_TOKEN
-  js/api.js        # wrapper fetch GET/POST
-  js/auth.js       # sessão localStorage
-  js/records.js    # listagem + pesquisa
-  js/admin.js      # painel admin
-backend/
-  Code.gs          # API do Apps Script (copiar p/ script vinculado à planilha)
-docs/
-  SHEETS_SCHEMA.md # colunas exatas de cada aba
+```sh
+npm ci --prefix frontend
+npm run dev
 ```
 
-## Setup rápido
+Abra **http://localhost:8080/pangya-world-record/**. O comando gera o backend, compila o frontend e inicia a API local com CSVs em `tests/fixtures/`, inclusive quando existe `.env` ou `.env.local`. Para apontar temporariamente para a planilha real, configure `.env` a partir de `.env.production.example` e execute `npm run dev:real`.
 
-1. Crie a planilha Google com as abas do `docs/SHEETS_SCHEMA.md` (primeira linha = cabeçalho exato).
-2. Extensões > Apps Script > cole o `backend/Code.gs` > ajuste `ORIGEM_TOKEN`, `SALT` e `GOOGLE_CLIENT_ID` (console.cloud.google.com → Credenciais → ID do cliente OAuth; autorize a origem do Pages).
-3. Implantar > Nova implantação > App da Web > Executar como: Você > Acesso: Qualquer pessoa > copie a URL `/exec`.
-4. No GitHub: Settings → Secrets and variables → Actions → crie `PWR_URL_EXEC` (URL `/exec`), `PWR_ORIGEM_TOKEN` (igual ao `Code.gs`) e `PWR_GOOGLE_CLIENT_ID` (igual ao `Code.gs`).
-5. Settings → Pages → Source: **GitHub Actions**. `git push` na `main` publica só `frontend/` com `config.js` gerado dos secrets (`backend/` nunca vai para o Pages).
+O administrador de desenvolvimento é `admin@test.com`, senha `admin123`. Esta conta existe apenas nas fixtures locais. Uma instalação limpa começa sem records; cadastre/envie records pelo fluxo normal. `node tests/setup.js` **reseta** todos os dados locais de teste.
 
-Login: senha ou Google (conta nova pelo Google entra bloqueada até o admin liberar; conta com email vincula no 1º login).
+Para trabalhar com atualização automática do frontend, mantenha a API local em execução e, em outro terminal, rode `npm --prefix frontend run dev`. O proxy do Vite encaminha `/exec` para a API local.
 
-Aviso honesto: secrets escondem os valores do **repo**, não dos **visitantes** (o navegador precisa deles — vão no JS publicado). Segurança real: `SALT` só no Apps Script + `role=admin` checado no servidor.
+```sh
+npm test               # contrato HTTP + fluxos completos + domínio + links seguros
+npm run build          # gera Code.gs e frontend/dist
+npm run build:backend  # somente bundle do Apps Script
+npm start              # serve o build com mock; use PWR_DATA_MODE=real para API real
+npm run dev:real       # desenvolvimento contra a API real (inclui Google OAuth)
+```
 
-## Segurança (honesta)
+O teste de integração usa um diretório temporário isolado e não altera `tests/fixtures/` nem acessa sua planilha Google. Dados de verificações antigas podem continuar em `tests/fixtures/`; eles só são apagados se você executar explicitamente `node tests/setup.js`. `.env` e `.env.local` mantêm o mock por padrão; `PWR_DATA_MODE=real` é a escolha explícita para a API real.
 
-- A planilha fica **Privada**. Só o Apps Script (rodando como você) lê/escreve.
-- O `origem` token **não é segurança real** (visível no JS) — é só barreira contra curioso. A segurança real é:
-  - senha nunca volta pro cliente (só `pass_hash` no servidor),
-  - sessão via token opaco na aba `Sessions`,
-  - checagem de `role=admin` **no servidor** em `validateRecord`, `upsertCourse`, `upsertBand`.
-- Qualquer um com a URL pode chamar a API — por isso login/validação são verificados no `Code.gs`, nunca no frontend.
+## Funcionalidades
 
-## Testes locais (Node + LibreOffice Calc)
+- Ranking público por campo, faixa de força, método, vento e nickname; menor score primeiro e maior Pang como desempate.
+- Layout responsivo, logo vetorial, hero ilustrado, navegação por teclado, filtros e estados de carregamento, erro e lista vazia.
+- Cadastro, login por senha ou Google, perfil e sessão revalidada pelo servidor.
+- Envio e edição de records com provas. Sem ajuda exige vídeo; contas novas precisam de liberação.
+- Melhorias em records publicados viram propostas, preservando o original até a aprovação final.
+- Votação ponderada, revisão administrativa, reabertura e pedidos de reavaliação.
+- Gestão de usuários, campos, faixas e records.
 
-Sem deploy: o `Code.gs` real roda em Node com mock do `SpreadsheetApp` sobre CSVs.
+## Estrutura e arquitetura
 
-- `node tests/run.js` — reseta fixtures e roda as checagens (auth, submit, validação, comunidade, admin, logout).
-- `node tests/setup.js` — só reseta os CSVs.
-- `node tests/server.js` — frontend em `http://localhost:8080/` (mock se `.env` vazio, planilha real se `.env` tem `URL_EXEC`).
-- `node tests/server.js mock` — força mock. `node tests/server.js real` — força real (`.env`). Pode passar porta e/ou URL: `node tests/server.js 8080 mock`.
-- `.env` (gitignorado, ver `.env.example`): preencha `URL_EXEC` + `ORIGEM_TOKEN` reais e o `server.js` usa sozinho, sem editar `config.js` e sem precisar passar a URL.
-- `libreoffice tests/fixtures/*.csv` — inspeciona/edita as "abas" como planilha. `tests/fixtures/` é gerado (gitignore).
+```text
+backend/src/
+  modules/
+    identity/          # contas, autenticação e pontos
+    catalog/           # campos e faixas de força
+    records/           # record, proposta, ranking e moderação
+    community/         # votos e reavaliação
+  infrastructure/      # adaptadores Google e persistência
+  adapters/http.js     # entrada HTTP, parsing, origem e lock
+  composition.js       # composição e injeção das dependências
+backend/Code.gs        # artefato GERADO para implantação
+frontend/src/
+  modules/             # apresentação agrupada por contexto
+  components/          # componentes visuais compartilhados
+  stores/              # sessão, categorias e notificações
+  lib/                 # cliente HTTP e formatação
+scripts/               # build e configuração de publicação
+tests/                 # testes de domínio, contrato e mock de persistência
+```
 
-## Fluxo
+Leia [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) para limites dos módulos, portas, regras e decisões da migração. Edite `backend/src`, nunca o bundle gerado. `npm test` verifica se `Code.gs` corresponde às fontes.
 
-1. Usuário se cadastra (`register`) → `status=blocked` (não envia records).
-2. Admin libera em Gerenciar → Usuários (`setUserStatus=active`).
-3. Usuário liberado cadastra record → `pending`. Editar/melhorar um record live cria **proposta** ligada (`edit_of`) — o original segue no index até a proposta passar admin + comunidade, quando os valores são aplicados e a proposta apagada (metade dos pontos).
-4. Admin valida (`listPending`), aprova/rejeita e pode **realocar** ou editar depois (`validateRecord`/`updateRecord`). Aprovar paga +10 pontos (1x).
-5. Aprovado vai p/ Comunidade: usuários liberados com 10+ pontos votam (peso = pontos, inclusive admin). Quórum: peso 50+, 3+ votantes, >2x o contrário. Aprovado (`community=1`) volta p/ `pending` (+25 pontos) p/ final do admin → World Record (index só `community=1`); rejeitado (`community=-1`) volta p/ `pending` como pedido de revisão, fora do index. Rejeição não é final: na fila, rejeitado (`-1`) aprovar confirma e rejeitar reabre; final (`1`) aprovar publica e rejeitar devolve p/ votar (zera os votos, admin-ok intacto). Dono de rejeição confirmada pede reavaliação sem editar (botão em Meus records). Se o dono editar depois do voto, os votos antigos são apagados e a comunidade vota a versão nova.
+## Google Sheets e publicação
 
-### 🌐 Github Pages
+1. Prepare as abas descritas em [docs/SHEETS_SCHEMA.md](docs/SHEETS_SCHEMA.md) e siga [backend/SHEETS_SETUP.md](backend/SHEETS_SETUP.md).
+2. Execute `npm run build:backend` e cole `backend/Code.gs` no Apps Script vinculado à planilha.
+3. Configure `ORIGEM_TOKEN`, `SALT` e `GOOGLE_CLIENT_ID` na cópia implantada; preserve o SALT existente ao atualizar para não invalidar senhas. Guarde esses valores fora do repositório.
+4. Implante como App da Web, executando como você, e copie a URL `/exec`.
+5. Configure os secrets do GitHub: `PWR_URL_EXEC`, `PWR_ORIGEM_TOKEN` e, para login Google, `PWR_GOOGLE_CLIENT_ID`.
+6. Em Settings → Pages, selecione GitHub Actions. O workflow testa, gera `frontend/public/config.js`, compila Vite e publica **apenas `frontend/dist`** quando você acionar a publicação ou enviar alterações à `main`.
 
-Para usar essa aplicação é só [clicar aqui](https://acrisio-filho.github.io/pangya-world-record/).
+O workflow não implanta o Apps Script: essa etapa é separada. As rotas usam hash (`#/community`) para funcionar ao recarregar no GitHub Pages. Configurações do navegador são públicas; a autorização é feita no backend. Não publique SALT, dados da planilha ou fixtures.
+
+Para testar contra a API real, copie `.env.example` para `.env`, preencha os valores e execute `npm run build` seguido de `node tests/server.js 8080 real`. Esse modo grava na planilha real ao usar os formulários.
+
+## Regras preservadas
+
+Uma categoria é campo + faixa de força + método + vento. Os estados de moderação e comunidade são separados: a publicação exige `status=approved` e `community=1`.
+
+A comunidade exige ao menos três votantes, peso de 50 e mais que o dobro do peso contrário. O proprietário não vota no próprio record. A aprovação comunitária volta à revisão final do administrador. Uma nova versão invalida votos da versão anterior. Os pontos e os valores pagos por propostas mantêm as regras do projeto original.
+
+## Arte e autoria
+
+A marca vetorial fica em `frontend/src/components/BrandLogo.vue` e `frontend/public/favicon.svg`. O hero fica em `frontend/public/images/pangya-hero.png`. Consulte [docs/VISUAL_ASSETS.md](docs/VISUAL_ASSETS.md) para o prompt e a origem da ilustração. É uma interpretação visual de fã, não material oficial do jogo.
+
+Código sob licença [MIT](LICENSE), preservando a atribuição ao projeto original.
