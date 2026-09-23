@@ -6,7 +6,6 @@ import { ref } from "vue";
 
 const CFG = typeof window !== "undefined" ? window.PWR_CONFIG || {} : {};
 const URL_API = CFG.URL_API || "";
-const ORIGEM_TOKEN = CFG.ORIGEM_TOKEN || "";
 
 export const pending = ref(0);
 
@@ -59,7 +58,7 @@ function getToken() {
 }
 
 export async function apiGet(action, params = {}) {
-  const q = new URLSearchParams({ origem: ORIGEM_TOKEN, action, ...params });
+  const q = new URLSearchParams({ action, ...params });
   const token = getToken();
   if (token) q.set("token", token);
   return fetchJson(action, `${URL_API}?${q.toString()}`);
@@ -67,10 +66,10 @@ export async function apiGet(action, params = {}) {
 
 export async function apiPost(action, data = {}) {
   const token = getToken();
-  const payload = { origem: ORIGEM_TOKEN, action, ...data };
+  const payload = { action, ...data };
   if (token) payload.token = token;
   // text/plain evita preflight CORS no Apps Script e a resposta continua legível.
-  return fetchJson(action, `${URL_API}?origem=${encodeURIComponent(ORIGEM_TOKEN)}`, {
+  return fetchJson(action, URL_API, {
     method: "POST",
     headers: { "Content-Type": "text/plain;charset=utf-8" },
     body: JSON.stringify(payload),

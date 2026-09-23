@@ -52,7 +52,7 @@ async function run() {
 
     // Register a session only in this local server, then verify required native form semantics.
     const api = new URL('/exec', base).href;
-    const login = await (await page.request.post(api, { data: { origem: 'TROQUE_ISSO_pwr_123', action: 'login', email: 'admin@test.com', password: 'admin123' } })).json();
+    const login = await (await page.request.post(api, { data: { action: 'login', email: 'admin@test.com', password: 'admin123' } })).json();
     assert.ok(login.token);
     await page.evaluate(login => { localStorage.setItem('pwr_token', login.token); localStorage.setItem('pwr_user', JSON.stringify(login.user)); }, login);
     await page.goto(base + '#/submit-record');

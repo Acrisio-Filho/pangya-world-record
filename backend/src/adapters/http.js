@@ -1,6 +1,5 @@
-// Driving adapter: protocol, origin checks and serialization stay outside use cases.
+// Driving adapter: protocol and serialization stay outside use cases.
 function doGet(e) {
-  if (!_checkOrigem(e)) return _out({ erro: "Acesso negado. Origem não autorizada." });
   const action = String(e.parameter.action || "").trim();
   const actions = createApplication().get;
   const handler = actions[action];
@@ -14,7 +13,6 @@ function doPost(e) {
     try { payload = JSON.parse((e.postData && e.postData.contents) || "{}"); }
     catch (err) { return _out({ erro: "Requisição inválida" }); }
     if (!payload || typeof payload !== "object" || Array.isArray(payload)) return _out({ erro: "Requisição inválida" });
-    if (payload.origem !== ORIGEM_TOKEN && (!e.parameter || e.parameter.origem !== ORIGEM_TOKEN)) return _out({ erro: "Acesso negado. Origem não autorizada." });
     const actions = createApplication().post;
     const action = String(payload.action || "");
     return _out(Object.prototype.hasOwnProperty.call(actions, action) ? actions[action](action, e, payload) : { erro: "action desconhecida: " + action });

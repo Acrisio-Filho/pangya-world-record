@@ -9,9 +9,9 @@ Escolhas do projeto:
 ## Setup rápido
 
 1. Crie a planilha Google com as abas do `docs/SHEETS_SCHEMA.md` (primeira linha = cabeçalho exato).
-2. Execute `npm run build:backend`. Em Extensões > Apps Script, cole `backend/Code.gs` e ajuste `ORIGEM_TOKEN`, `SALT` e `GOOGLE_CLIENT_ID`. No cliente OAuth em `console.cloud.google.com`, autorize a origem `https://acrisio-filho.github.io`.
+2. Execute `npm run build:backend`. Em Extensões > Apps Script, cole `backend/Code.gs` e ajuste `SALT`, `GOOGLE_CLIENT_ID` e `GOOGLE_CLIENT_SECRET`. No cliente OAuth Web em `console.cloud.google.com`, autorize `https://acrisio-filho.github.io` e `http://localhost:8080` como origens JavaScript e URIs de redirecionamento.
 3. Implantar > Nova implantação > App da Web > Executar como: Você > Acesso: Qualquer pessoa > copie a URL `/exec`.
-4. No GitHub: Settings → Secrets and variables → Actions → crie `PWR_URL_EXEC` (URL `/exec`), `PWR_ORIGEM_TOKEN` (igual ao `Code.gs`) e `PWR_GOOGLE_CLIENT_ID` (igual ao `Code.gs`).
+4. No GitHub: Settings → Secrets and variables → Actions → crie `PWR_URL_EXEC` (URL `/exec`) e `PWR_GOOGLE_CLIENT_ID` (igual ao `Code.gs`).
 5. Settings → Pages → Source: **GitHub Actions**. Uma alteração enviada à `main` publica `frontend/dist`, com `config.js` gerado dos secrets; o backend nunca vai para o Pages.
 
 ## Desenvolvimento local
@@ -43,7 +43,7 @@ npm test               # contrato HTTP, domínio e verificações do frontend
 npm start              # serve o build já gerado com a API mock
 ```
 
-Para testar a API real sem criar outro script npm, copie `.env.example` para `.env`, preencha `URL_EXEC`, `ORIGEM_TOKEN` e `GOOGLE_CLIENT_ID`, gere o build e inicie explicitamente o servidor em modo real:
+Para testar a API real sem criar outro script npm, copie `.env.example` para `.env`, preencha `URL_EXEC` e `GOOGLE_CLIENT_ID`, gere o build e inicie explicitamente o servidor em modo real:
 
 ```sh
 npm run build
@@ -81,7 +81,7 @@ backend/src/
     records/           # records, propostas, ranking e BEST
     community/         # votos, decisão e reavaliação
   infrastructure/      # adaptadores Google Apps Script e Sheets
-  adapters/http.js     # entrada HTTP e proteção de origem
+  adapters/http.js     # entrada HTTP e serialização
   composition.js       # composição das dependências
 backend/Code.gs        # artefato gerado para Apps Script
 frontend/src/
@@ -98,12 +98,12 @@ Leia [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) para as portas, limites e deci
 
 1. Prepare a planilha conforme [docs/SHEETS_SCHEMA.md](docs/SHEETS_SCHEMA.md) e [backend/SHEETS_SETUP.md](backend/SHEETS_SETUP.md).
 2. Execute `npm run build:backend` e publique o conteúdo de `backend/Code.gs` no Apps Script vinculado à planilha.
-3. No Apps Script, defina `ORIGEM_TOKEN`, `SALT` e `GOOGLE_CLIENT_ID`. Preserve o `SALT` existente em atualizações para não invalidar senhas.
+3. No Apps Script, defina `SALT`, `GOOGLE_CLIENT_ID` e `GOOGLE_CLIENT_SECRET`. Preserve o `SALT` existente em atualizações para não invalidar senhas; o client secret fica somente no Apps Script.
 4. Implante como App da Web, executando como o proprietário da planilha, e guarde a URL terminada em `/exec`.
-5. No GitHub, configure os secrets `PWR_URL_EXEC`, `PWR_ORIGEM_TOKEN` e `PWR_GOOGLE_CLIENT_ID`.
+5. No GitHub, configure os secrets `PWR_URL_EXEC` e `PWR_GOOGLE_CLIENT_ID`.
 6. Configure GitHub Pages para usar GitHub Actions. O workflow executa testes, gera `frontend/public/config.js`, compila o frontend e publica `frontend/dist` ao enviar mudanças para `main` ou acioná-lo manualmente.
 
-O workflow não publica o Apps Script. As rotas usam URLs normais, como `/pangya-world-record/community`; o `404.html` restaura deep-links no GitHub Pages. As configurações do navegador são públicas: nunca inclua `SALT`, planilhas ou dados privados nelas.
+O workflow não publica o Apps Script. As rotas usam URLs normais, como `/pangya-world-record/community`; o `404.html` restaura deep-links no GitHub Pages. As configurações do navegador são públicas: a URL da API e o Client ID OAuth aparecem no `config.js`; nunca inclua `SALT`, chaves privadas, planilhas ou outros dados privados nele. Ações que modificam dados exigem um token de sessão válido.
 
 ## Arte e licença
 

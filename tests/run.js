@@ -9,7 +9,6 @@ process.on("exit", () => fs.rmSync(testFixtures, { recursive: true, force: true 
 require("./setup.js");
 const { loadApi } = require("./gas-mock.js");
 
-const ORIGEM = "TROQUE_ISSO_pwr_123";
 let pass = 0, fail = 0;
 function ok(cond, name, extra = "") {
   if (cond) { pass++; console.log(`  ok: ${name}`); }
@@ -17,12 +16,12 @@ function ok(cond, name, extra = "") {
 }
 
 const api = loadApi();
-const G = (action, p = {}) => api.get({ origem: ORIGEM, action, ...p });
-const P = (action, d = {}) => api.post({ origem: ORIGEM, action, ...d });
+const G = (action, p = {}) => api.get({ action, ...p });
+const P = (action, d = {}) => api.post({ action, ...d });
 
-console.log("== origem / schema ==");
-ok(api.get({ origem: "errada", action: "listBands" }).erro, "GET origem inválida bloqueia");
-ok(api.post({ origem: "errada", action: "login" }).erro, "POST origem inválida bloqueia");
+console.log("== protocolo / schema ==");
+ok(api.get({ action: "desconhecida" }).erro, "GET com action desconhecida bloqueia");
+ok(api.post({ action: "desconhecida" }).erro, "POST com action desconhecida bloqueia");
 ok(Array.isArray(G("listBands")) && G("listBands").length === 4, "4 faixas ativas");
 ok(G("listCourses").length === 2, "2 courses ativos");
 
@@ -57,20 +56,22 @@ const lastSeenCol = sessionRows[0].indexOf("last_seen_at");
 sessionRows.find(row => row[0] === idleLogin.token)[lastSeenCol] = new Date(Date.now() - 31 * 60 * 1000).toISOString();
 fs.writeFileSync(sessionsPath, sessionRows.map(row => row.join(",")).join("\n") + "\n");
 const expiredSessionApi = loadApi();
-ok(expiredSessionApi.get({ origem: ORIGEM, action: "getMe", token: idleLogin.token }).erro === "Sessão inválida", "sessão expira por inatividade");
+ok(expiredSessionApi.get({ action: "getMe", token: idleLogin.token }).erro === "Sessão inválida", "sessão expira por inatividade");
 
 console.log("== login Google ==");
-const g1 = P("loginGoogle", { id_token: "ga" });
+const googleLogin = code => P("loginGoogle", { authorization_code: code, redirect_uri: "http://localhost:8080" });
+const g1 = googleLogin("ga");
 ok(g1.status === "ok" && g1.user.status === "blocked" && g1.token && g1.user.nickname === "ga" && g1.user.avatar_url === "https://lh3.googleusercontent.com/a/ga", "loginGoogle cria conta bloqueada com foto e nickname do e-mail");
-const g2 = P("loginGoogle", { id_token: "ga" });
+const g2 = googleLogin("ga");
 ok(g2.status === "ok" && g2.user.id === g1.user.id, "mesmo Google entra na mesma conta (sub)");
 const greg = P("register", { nickname: "GNormal", email: "gc@test.com", password: strongPass });
-const g3 = P("loginGoogle", { id_token: "gc" });
+const g3 = googleLogin("gc");
 ok(g3.status === "ok" && g3.user.id === greg.user.id, "conta com email vincula pelo Google");
-ok(P("loginGoogle", { id_token: "gc" }).user.id === greg.user.id, "vinculada entra pelo sub");
-ok(P("loginGoogle", { id_token: "bad" }).erro, "Google inválido bloqueia");
-ok(P("loginGoogle", {}).erro, "sem id_token bloqueia");
-ok(P("loginGoogle", { id_token: "nick-conflict" }).user.nickname === "player2", "nickname Google já usado recebe próximo número");
+ok(googleLogin("gc").user.id === greg.user.id, "vinculada entra pelo sub");
+ok(googleLogin("bad").erro, "Google inválido bloqueia");
+ok(P("loginGoogle", {}).erro, "sem código do Google bloqueia");
+ok(P("loginGoogle", { authorization_code: "ga", redirect_uri: "https://origem-invalida.test" }).erro, "origem OAuth não autorizada bloqueia");
+ok(googleLogin("nick-conflict").user.nickname === "player2", "nickname Google já usado recebe próximo número");
 ok(P("updateMe", { token: userTok, nickname: "PLAYER2" }).erro, "edição bloqueia nickname duplicado");
 ok(P("changePassword", { token: g1.token, new_password: "SenhaGoogle1!" }).status === "ok", "conta Google define primeira senha sem senha atual");
 ok(P("login", { email: "ga@test.com", password: "SenhaGoogle1!" }).status === "ok", "conta Google entra também com senha definida");

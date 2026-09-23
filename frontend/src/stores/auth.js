@@ -79,8 +79,8 @@ export const useAuthStore = defineStore("auth", {
       this.saveSession(r.token, r.user);
       return r;
     },
-    async loginGoogle(idToken) {
-      const r = await apiPost("loginGoogle", { id_token: idToken });
+    async loginGoogleCode(code, redirectUri) {
+      const r = await apiPost("loginGoogle", { authorization_code: code, redirect_uri: redirectUri });
       if (r.erro) return r;
       this.saveSession(r.token, r.user);
       return r;

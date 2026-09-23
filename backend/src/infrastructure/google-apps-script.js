@@ -1,4 +1,3 @@
-const ORIGEM_TOKEN = "TROQUE_ISSO_pwr_123"; // igual ao frontend/js/config.js
 const SALT = "TROQUE_ISSO_salt_bem_longo"; // usado no hash da senha
 const SESSION_DIAS = 30;
 const SESSION_IDLE_MINUTES = 30;
@@ -8,6 +7,9 @@ const LOGIN_WINDOW_SECONDS = 5 * 60;
 // Login Google (GIS): Client ID é público por desenho (vai no JS). Troque pelo seu
 // (console.cloud.google.com → APIs e serviços → Credenciais → ID do cliente OAuth).
 const GOOGLE_CLIENT_ID = "TROQUE_ISSO_google_client_id"; // igual ao frontend/js/config.js
+// Nunca vai para o frontend. Copie do mesmo cliente OAuth Web no Console Google.
+const GOOGLE_CLIENT_SECRET = "TROQUE_ISSO_google_client_secret";
+const GOOGLE_REDIRECT_ORIGINS = ["https://acrisio-filho.github.io", "http://localhost:8080"];
 // Comunidade: voto pesa os pontos; aprova com peso 50+, 3+ votantes e >2x o contrário
 const VOTE_QUORUM = 50;
 const VOTE_MIN_VOTERS = 3;
@@ -122,10 +124,6 @@ function _append(name, obj, header) {
 function _hash(s) {
   const bytes = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, SALT + s);
   return bytes.map(b => ("0" + ((b < 0 ? b + 256 : b)).toString(16)).slice(-2)).join("");
-}
-function _checkOrigem(e) {
-  const p = (e && e.parameter) || {};
-  return p.origem === ORIGEM_TOKEN;
 }
 function _publicUser(u) {
   return { id: u.id, nickname: u.nickname, role: u.role, status: u.status || "active", bio: u.bio || "", youtube_url: u.youtube_url || "", avatar_url: u.avatar_url || "", has_password: !!u.pass_hash, points: _effPoints(u), created_at: u.created_at };
@@ -325,5 +323,21 @@ const googleIdentity = {
   verify(idToken) {
     const response = UrlFetchApp.fetch("https://oauth2.googleapis.com/tokeninfo?id_token=" + encodeURIComponent(idToken), { muteHttpExceptions: true });
     return JSON.parse(response.getContentText());
+  },
+  exchangeCode(code, redirectUri) {
+    const tokenResponse = UrlFetchApp.fetch("https://oauth2.googleapis.com/token", {
+      method: "post",
+      payload: {
+        code,
+        client_id: GOOGLE_CLIENT_ID,
+        client_secret: GOOGLE_CLIENT_SECRET,
+        redirect_uri: redirectUri,
+        grant_type: "authorization_code",
+      },
+      muteHttpExceptions: true,
+    });
+    const tokens = JSON.parse(tokenResponse.getContentText());
+    if (!tokens || !tokens.id_token) return null;
+    return this.verify(tokens.id_token);
   }
 };

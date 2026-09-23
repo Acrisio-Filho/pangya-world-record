@@ -59,10 +59,13 @@ function loadApi() {
       remove: key => cache.delete(key),
     }),
   };
-  // tokeninfo do Google: no dev, lê os claims do JWT real para reproduzir
-  // e-mail, sub e foto. Tokens curtos preservam o fallback determinístico dos testes.
+  // Simula a troca server-side do código OAuth e a validação do ID token.
+  // Tokens curtos preservam o fallback determinístico dos testes.
   sandbox.UrlFetchApp = {
-    fetch: (url) => {
+    fetch: (url, options = {}) => {
+      if (String(url) === "https://oauth2.googleapis.com/token") {
+        return { getContentText: () => JSON.stringify({ id_token: options.payload?.code || "" }) };
+      }
       const m = String(url).match(/id_token=([^&]*)/);
       const tok = m ? decodeURIComponent(m[1]) : "";
       let claims = {};

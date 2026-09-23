@@ -17,9 +17,9 @@ Detalhe de cada coluna: `docs/SHEETS_SCHEMA.md`.
 1. Crie a planilha e as 6 abas acima (copie os cabeçalhos sem renomear).
 2. Primeiro admin: cadastre-se pelo site (`#/register`) e depois edite sua linha na aba `Users`: `role=admin`, `status=active`.
 3. Extensões > Apps Script > apague tudo > rode `npm run build:backend` e cole o `Code.gs` gerado nesta pasta. Edite as fontes em `backend/src`, não o bundle.
-4. Troque `ORIGEM_TOKEN` (texto longo aleatório), `SALT` (outro texto longo) e `GOOGLE_CLIENT_ID` (ID do cliente OAuth) — guarde os três.
+4. Troque `SALT` (texto longo aleatório), `GOOGLE_CLIENT_ID` e `GOOGLE_CLIENT_SECRET` (do mesmo cliente OAuth Web) — guarde os três. `SALT` e client secret ficam somente no Apps Script. No Console Google, autorize `https://acrisio-filho.github.io` e `http://localhost:8080` como origens JavaScript e URIs de redirecionamento.
 5. Implantar > Nova implantação > App da Web > Executar como: **Você** > Acesso: **Qualquer pessoa** > Implantar > autorize > copie a URL `/exec`.
-6. Em `frontend/public/config.js`: `URL_API` = URL `/exec`, `ORIGEM_TOKEN` e `GOOGLE_CLIENT_ID` = os mesmos do passo 4.
+6. Em `frontend/public/config.js`: `URL_API` = URL `/exec` e `GOOGLE_CLIENT_ID` = o mesmo do passo 4. Ambos são valores públicos do navegador; não inclua `SALT` nem `GOOGLE_CLIENT_SECRET` nesse arquivo.
 7. Quando o esquema mudar (ver abaixo), adicione só as colunas/abas novas — nunca apague ou renomeie as existentes (o código antigo ignora colunas que não conhece, mas quebra se faltar).
 
 ## Modificações do esquema por commit

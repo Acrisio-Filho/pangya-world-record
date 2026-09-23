@@ -1,6 +1,6 @@
 // Application service: all outgoing dependencies are injected by the composition root.
 function createIdentityModule(ports) {
-  const { GOOGLE_CLIENT_ID, googleIdentity, ids, _append, _authUser, _clearFailedLogins, _effPoints, _findUserByEmail, _findUserById, _hash, _isAdmin, _loginBlocked, _newSession, _page, _publicUser, _recalcBest, _registerFailedLogin, _rows, _table, _toObj, _youtubeOk } = ports;
+  const { GOOGLE_CLIENT_ID, GOOGLE_REDIRECT_ORIGINS, googleIdentity, ids, _append, _authUser, _clearFailedLogins, _effPoints, _findUserByEmail, _findUserById, _hash, _isAdmin, _loginBlocked, _newSession, _page, _publicUser, _recalcBest, _registerFailedLogin, _rows, _table, _toObj, _youtubeOk } = ports;
   const respond = value => value;
   const passwordOk = pass => pass.length >= 8 && /[A-Z]/.test(pass) && /[A-Za-z]/.test(pass) && /\d/.test(pass) && /[^A-Za-z0-9\s]/.test(pass);
   const nicknameTaken = (nickname, exceptId) => {
@@ -67,12 +67,15 @@ function createIdentityModule(ports) {
     return respond({ status: "ok", token, user: _publicUser(u) });
   }
   if (action === "loginGoogle") {
-    // GIS no frontend entrega id_token; validado AQUI (nunca confie no JWT decodificado no browser).
-    const idToken = String(payload.id_token || "");
-    if (!idToken) return respond({ erro: "Token do Google ausente" });
+    // O navegador recebe só um código de uso único. A troca e a validação do
+    // ID token acontecem no Apps Script, que guarda o client secret.
+    const code = String(payload.authorization_code || "");
+    const redirectUri = String(payload.redirect_uri || "");
+    if (!code) return respond({ erro: "Código do Google ausente" });
+    if (!GOOGLE_REDIRECT_ORIGINS.includes(redirectUri)) return respond({ erro: "Origem do Google não autorizada" });
     let info;
     try {
-      info = googleIdentity.verify(idToken);
+      info = googleIdentity.exchangeCode(code, redirectUri);
     } catch (err) {
       return respond({ erro: "Falha ao validar Google" });
     }

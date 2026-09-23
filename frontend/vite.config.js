@@ -11,7 +11,7 @@ export default defineConfig({
       server.middlewares.use((req, res, next) => {
         if (req.url?.split("?")[0] !== "/pangya-world-record/config.js" && req.url?.split("?")[0] !== "/config.js") return next();
         res.setHeader("Content-Type", "application/javascript");
-        res.end('window.PWR_CONFIG = { URL_API: "/exec", ORIGEM_TOKEN: "TROQUE_ISSO_pwr_123", GOOGLE_CLIENT_ID: "", DATA_MODE: "demo" };');
+        res.end('window.PWR_CONFIG = { URL_API: "/exec", GOOGLE_CLIENT_ID: "", DATA_MODE: "demo" };');
       });
     },
   }],

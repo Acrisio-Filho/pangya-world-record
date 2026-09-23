@@ -54,7 +54,6 @@ function effectivePoints(u, now) {
 }
 
 // --- infrastructure/google-apps-script.js ---
-const ORIGEM_TOKEN = "TROQUE_ISSO_pwr_123"; // igual ao frontend/js/config.js
 const SALT = "TROQUE_ISSO_salt_bem_longo"; // usado no hash da senha
 const SESSION_DIAS = 30;
 const SESSION_IDLE_MINUTES = 30;
@@ -64,6 +63,9 @@ const LOGIN_WINDOW_SECONDS = 5 * 60;
 // Login Google (GIS): Client ID é público por desenho (vai no JS). Troque pelo seu
 // (console.cloud.google.com → APIs e serviços → Credenciais → ID do cliente OAuth).
 const GOOGLE_CLIENT_ID = "TROQUE_ISSO_google_client_id"; // igual ao frontend/js/config.js
+// Nunca vai para o frontend. Copie do mesmo cliente OAuth Web no Console Google.
+const GOOGLE_CLIENT_SECRET = "TROQUE_ISSO_google_client_secret";
+const GOOGLE_REDIRECT_ORIGINS = ["https://acrisio-filho.github.io", "http://localhost:8080"];
 // Comunidade: voto pesa os pontos; aprova com peso 50+, 3+ votantes e >2x o contrário
 const VOTE_QUORUM = 50;
 const VOTE_MIN_VOTERS = 3;
@@ -178,10 +180,6 @@ function _append(name, obj, header) {
 function _hash(s) {
   const bytes = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, SALT + s);
   return bytes.map(b => ("0" + ((b < 0 ? b + 256 : b)).toString(16)).slice(-2)).join("");
-}
-function _checkOrigem(e) {
-  const p = (e && e.parameter) || {};
-  return p.origem === ORIGEM_TOKEN;
 }
 function _publicUser(u) {
   return { id: u.id, nickname: u.nickname, role: u.role, status: u.status || "active", bio: u.bio || "", youtube_url: u.youtube_url || "", avatar_url: u.avatar_url || "", has_password: !!u.pass_hash, points: _effPoints(u), created_at: u.created_at };
@@ -381,13 +379,29 @@ const googleIdentity = {
   verify(idToken) {
     const response = UrlFetchApp.fetch("https://oauth2.googleapis.com/tokeninfo?id_token=" + encodeURIComponent(idToken), { muteHttpExceptions: true });
     return JSON.parse(response.getContentText());
+  },
+  exchangeCode(code, redirectUri) {
+    const tokenResponse = UrlFetchApp.fetch("https://oauth2.googleapis.com/token", {
+      method: "post",
+      payload: {
+        code,
+        client_id: GOOGLE_CLIENT_ID,
+        client_secret: GOOGLE_CLIENT_SECRET,
+        redirect_uri: redirectUri,
+        grant_type: "authorization_code",
+      },
+      muteHttpExceptions: true,
+    });
+    const tokens = JSON.parse(tokenResponse.getContentText());
+    if (!tokens || !tokens.id_token) return null;
+    return this.verify(tokens.id_token);
   }
 };
 
 // --- modules/identity/application/service.js ---
 // Application service: all outgoing dependencies are injected by the composition root.
 function createIdentityModule(ports) {
-  const { GOOGLE_CLIENT_ID, googleIdentity, ids, _append, _authUser, _clearFailedLogins, _effPoints, _findUserByEmail, _findUserById, _hash, _isAdmin, _loginBlocked, _newSession, _page, _publicUser, _recalcBest, _registerFailedLogin, _rows, _table, _toObj, _youtubeOk } = ports;
+  const { GOOGLE_CLIENT_ID, GOOGLE_REDIRECT_ORIGINS, googleIdentity, ids, _append, _authUser, _clearFailedLogins, _effPoints, _findUserByEmail, _findUserById, _hash, _isAdmin, _loginBlocked, _newSession, _page, _publicUser, _recalcBest, _registerFailedLogin, _rows, _table, _toObj, _youtubeOk } = ports;
   const respond = value => value;
   const passwordOk = pass => pass.length >= 8 && /[A-Z]/.test(pass) && /[A-Za-z]/.test(pass) && /\d/.test(pass) && /[^A-Za-z0-9\s]/.test(pass);
   const nicknameTaken = (nickname, exceptId) => {
@@ -454,12 +468,15 @@ function createIdentityModule(ports) {
     return respond({ status: "ok", token, user: _publicUser(u) });
   }
   if (action === "loginGoogle") {
-    // GIS no frontend entrega id_token; validado AQUI (nunca confie no JWT decodificado no browser).
-    const idToken = String(payload.id_token || "");
-    if (!idToken) return respond({ erro: "Token do Google ausente" });
+    // O navegador recebe só um código de uso único. A troca e a validação do
+    // ID token acontecem no Apps Script, que guarda o client secret.
+    const code = String(payload.authorization_code || "");
+    const redirectUri = String(payload.redirect_uri || "");
+    if (!code) return respond({ erro: "Código do Google ausente" });
+    if (!GOOGLE_REDIRECT_ORIGINS.includes(redirectUri)) return respond({ erro: "Origem do Google não autorizada" });
     let info;
     try {
-      info = googleIdentity.verify(idToken);
+      info = googleIdentity.exchangeCode(code, redirectUri);
     } catch (err) {
       return respond({ erro: "Falha ao validar Google" });
     }
@@ -1184,7 +1201,7 @@ function createCommunityModule(ports) {
 
 // --- composition.js ---
 function createApplication() {
-  const identity = createIdentityModule({ GOOGLE_CLIENT_ID, googleIdentity, ids: { next: () => Utilities.getUuid() }, _append, _authUser, _clearFailedLogins, _effPoints, _findUserByEmail, _findUserById, _hash, _isAdmin, _loginBlocked, _newSession, _page, _publicUser, _recalcBest, _registerFailedLogin, _rows, _table, _toObj, _youtubeOk });
+  const identity = createIdentityModule({ GOOGLE_CLIENT_ID, GOOGLE_REDIRECT_ORIGINS, googleIdentity, ids: { next: () => Utilities.getUuid() }, _append, _authUser, _clearFailedLogins, _effPoints, _findUserByEmail, _findUserById, _hash, _isAdmin, _loginBlocked, _newSession, _page, _publicUser, _recalcBest, _registerFailedLogin, _rows, _table, _toObj, _youtubeOk });
   const catalog = createCatalogModule({ ids: { next: () => Utilities.getUuid() }, _append, _authUser, _isAdmin, _recalcBest, _rows, _table, _toObj });
   const records = createRecordsModule({ METHODS, PTS_ADMIN_OK, PTS_IMPROVE_ADMIN, RecordPolicy, RecordDraft, ids: { next: () => Utilities.getUuid() }, WINDS, _addPoints, _append, _authUser, _bandForPower, _isLiveRow, _makeProposal, _page, _recalcBest, _rows, _table, _toObj, _urlOk });
   const community = createCommunityModule({ PTS_COM_OK, PTS_IMPROVE_COM, ids: { next: () => Utilities.getUuid() }, VotingPolicy, _addPoints, _append, _authUser, _effPoints, _recalcBest, _rows, _table, _tally, _toObj });
@@ -1195,9 +1212,8 @@ function createApplication() {
 }
 
 // --- adapters/http.js ---
-// Driving adapter: protocol, origin checks and serialization stay outside use cases.
+// Driving adapter: protocol and serialization stay outside use cases.
 function doGet(e) {
-  if (!_checkOrigem(e)) return _out({ erro: "Acesso negado. Origem não autorizada." });
   const action = String(e.parameter.action || "").trim();
   const actions = createApplication().get;
   const handler = actions[action];
@@ -1211,7 +1227,6 @@ function doPost(e) {
     try { payload = JSON.parse((e.postData && e.postData.contents) || "{}"); }
     catch (err) { return _out({ erro: "Requisição inválida" }); }
     if (!payload || typeof payload !== "object" || Array.isArray(payload)) return _out({ erro: "Requisição inválida" });
-    if (payload.origem !== ORIGEM_TOKEN && (!e.parameter || e.parameter.origem !== ORIGEM_TOKEN)) return _out({ erro: "Acesso negado. Origem não autorizada." });
     const actions = createApplication().post;
     const action = String(payload.action || "");
     return _out(Object.prototype.hasOwnProperty.call(actions, action) ? actions[action](action, e, payload) : { erro: "action desconhecida: " + action });

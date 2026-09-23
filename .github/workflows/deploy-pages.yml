@@ -28,7 +28,6 @@ jobs:
       - name: Gerar configuração pública
         env:
           PWR_URL_EXEC: ${{ secrets.PWR_URL_EXEC }}
-          PWR_ORIGEM_TOKEN: ${{ secrets.PWR_ORIGEM_TOKEN }}
           PWR_GOOGLE_CLIENT_ID: ${{ secrets.PWR_GOOGLE_CLIENT_ID }}
         run: node scripts/write-config.js
       - run: npm run build

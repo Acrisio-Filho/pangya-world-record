@@ -39,11 +39,9 @@ function loadEnv() {
 const ENV = loadEnv();
 const dataMode = mode || process.env.PWR_DATA_MODE || ENV.PWR_DATA_MODE || "mock";
 const REAL_URL = dataMode === "real" ? urlArg || ENV.URL_EXEC || "" : "";
-const REAL_TOKEN = ENV.ORIGEM_TOKEN || "";
 const REAL_GID = ENV.GOOGLE_CLIENT_ID || "";
 // Validação amiga: valores trocados geram 404 estranho no navegador.
-if (REAL_URL && !/^https?:\/\//i.test(REAL_URL)) console.error("AVISO: URL_EXEC não parece URL (trocou com ORIGEM_TOKEN?)");
-if (REAL_TOKEN && /^https?:\/\//i.test(REAL_TOKEN)) console.error("AVISO: ORIGEM_TOKEN parece URL (trocou com URL_EXEC?)");
+if (REAL_URL && !/^https?:\/\//i.test(REAL_URL)) console.error("AVISO: URL_EXEC não parece URL.");
 if (REAL_URL && !/\/exec(\?|$)/i.test(REAL_URL)) console.error("AVISO: URL_EXEC não termina com /exec — use a URL do App da Web (Implantar > Gerenciar implantações), não a da planilha");
 if (dataMode === "real" && !REAL_URL) {
   console.error("modo real sem URL: preencha URL_EXEC no .env ou passe a URL junto");
@@ -106,7 +104,6 @@ const server = http.createServer((req, res) => {
   if (file === "/config.js") {
     content = "window.PWR_CONFIG = " + JSON.stringify({
       URL_API: API_URL,
-      ORIGEM_TOKEN: REAL_URL ? REAL_TOKEN : "TROQUE_ISSO_pwr_123",
       // The Google button only needs a public Client ID; it is independent
       // from whether the records API is using the local mock or Apps Script.
       GOOGLE_CLIENT_ID: REAL_GID,
