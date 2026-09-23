@@ -83,8 +83,10 @@ ok(G("getMe", { token: userTok }).youtube_url === "https://youtu.be/abc", "youtu
 console.log("== liberação de conta ==");
 ok(P("submitRecord", { token: userTok, course_id: "blue_water", power_value: 245, score: -25 }).erro, "submit bloqueado antes da liberação");
 ok(G("listUsers", { token: userTok }).erro === "Só admin", "listUsers bloqueia user comum");
+ok(G("listPendingUsers", { token: userTok }).erro === "Só admin", "lista de novos usuários bloqueia user comum");
 const users = G("listUsers", { token: adminTok });
 ok(users.some((x) => x.id === userId && x.status === "blocked"), "admin vê conta bloqueada");
+ok(G("listPendingUsers", { token: adminTok }).some((x) => x.id === userId), "admin vê novo usuário aguardando liberação");
 ok(P("setUserStatus", { token: userTok, id: userId, status: "active" }).erro === "Só admin", "setUserStatus bloqueia user comum");
 ok(P("setUserStatus", { token: adminTok, id: "admin-1", status: "blocked" }).erro, "admin não altera a própria conta");
 ok(P("setUserStatus", { token: adminTok, id: userId, status: "active" }).status === "ok", "admin libera conta");

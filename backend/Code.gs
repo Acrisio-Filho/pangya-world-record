@@ -404,6 +404,15 @@ function createIdentityModule(ports) {
     const { header, rows } = _rows("Users");
     return respond(_page(rows.map(r => { const u = _toObj(header, r); return { id: u.id, nickname: u.nickname, email: u.email, role: u.role, status: u.status || "active", bio: u.bio || "", youtube_url: u.youtube_url || "", points: _effPoints(u), created_at: u.created_at }; }), e.parameter));
   }
+  if (action === "listPendingUsers") {
+    if (!_isAdmin(e)) return respond({ erro: "Só admin" });
+    const { header, rows } = _rows("Users");
+    const pending = rows.map(r => _toObj(header, r))
+      .filter(user => String(user.status || "blocked") === "blocked")
+      .sort((a, b) => String(b.created_at || "").localeCompare(String(a.created_at || "")))
+      .map(user => ({ id: user.id, nickname: user.nickname, email: user.email, created_at: user.created_at, login_google: !!user.google_sub }));
+    return respond(_page(pending, e.parameter));
+  }
   if (action === "register") {
     const nickname = String(payload.nickname || "").trim();
     const email = String(payload.email || "").toLowerCase().trim();
@@ -1169,7 +1178,7 @@ function createApplication() {
   const records = createRecordsModule({ METHODS, PTS_ADMIN_OK, PTS_IMPROVE_ADMIN, RecordPolicy, RecordDraft, ids: { next: () => Utilities.getUuid() }, WINDS, _addPoints, _append, _authUser, _bandForPower, _isLiveRow, _makeProposal, _page, _recalcBest, _rows, _table, _toObj, _urlOk });
   const community = createCommunityModule({ PTS_COM_OK, PTS_IMPROVE_COM, ids: { next: () => Utilities.getUuid() }, VotingPolicy, _addPoints, _append, _authUser, _effPoints, _recalcBest, _rows, _table, _tally, _toObj });
   return {
-    get: { getUser: identity, getMe: identity, listUsers: identity, listCourses: catalog, listBands: catalog, listRecords: records, listPending: records, tally: community, tallies: community, myVotes: community },
+    get: { getUser: identity, getMe: identity, listUsers: identity, listPendingUsers: identity, listCourses: catalog, listBands: catalog, listRecords: records, listPending: records, tally: community, tallies: community, myVotes: community },
     post: { register: identity, login: identity, loginGoogle: identity, logout: identity, updateMe: identity, changePassword: identity, deleteMe: identity, setUserStatus: identity, adminResetPassword: identity, upsertBand: catalog, upsertCourse: catalog, deleteBand: catalog, deleteCourse: catalog, submitRecord: records, validateRecord: records, updateRecord: records, vote: community, appealVote: community, reopenVote: community },
   };
 }

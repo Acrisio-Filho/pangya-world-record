@@ -33,15 +33,20 @@ const adminTabs = [
 const pend = ref([]);
 const pendTotal = ref(0);
 const pendPage = ref(1);
+const pendingUsers = ref([]);
 const pendRealloc = reactive({}); // id -> { course_id, powerband_id, note }
 
 async function renderPending(page = 1) {
   tabLoading.pending = true;
   pendPage.value = page;
   try {
-    const { rows, total } = await apiPage("listPending", {}, page);
+    const [{ rows, total }, users] = await Promise.all([
+      apiPage("listPending", {}, page),
+      apiGet("listPendingUsers"),
+    ]);
     pend.value = rows;
     pendTotal.value = total;
+    pendingUsers.value = Array.isArray(users) ? users : [];
     rows.forEach((r) => {
       if (!pendRealloc[r.id]) pendRealloc[r.id] = { course_id: r.course_id, powerband_id: r.powerband_id, note: "" };
     });
@@ -254,7 +259,20 @@ async function toggleUserStatus(u) {
   const r = await apiPost("setUserStatus", { id: u.id, status: to });
   if (r.erro) return toast.error(r.erro);
   toast.success("Conta atualizada.");
-  reloadUsers(usersPage.value);
+  if (tabLoaded.pending) renderPending(pendPage.value);
+  if (tabLoaded.users) reloadUsers(usersPage.value);
+}
+async function approvePendingUser(u) {
+  if (!await confirm.ask({
+    title: "Liberar esta conta?",
+    message: `${u.nickname} poderá enviar records e votar quando alcançar os pontos necessários.`,
+    confirmLabel: "Liberar conta",
+  })) return;
+  const r = await apiPost("setUserStatus", { id: u.id, status: "active" });
+  if (r.erro) return toast.error(r.erro);
+  toast.success(`${u.nickname} recebeu acesso.`);
+  renderPending(pendPage.value);
+  if (tabLoaded.users) reloadUsers(usersPage.value);
 }
 function openPasswordReset(u) {
   passwordResetTarget.value = u;
@@ -365,7 +383,26 @@ onMounted(async () => {
     <section v-show="activeTab === 'pending'" id="admin-pending" role="tabpanel">
       <h2 class="section-title mb-3">Records pendentes</h2>
       <div v-if="tabLoading.pending" class="state-panel" role="status"><div class="loading-orbit"></div><p>Carregando pedidos…</p></div>
-      <div v-else-if="!pend.length" class="card py-8 text-center text-sm text-slate-500">Nada pendente.</div>
+      <template v-else>
+      <section v-if="pendingUsers.length" class="mb-6" aria-label="Novos usuários aguardando liberação">
+        <div class="mb-3 flex flex-wrap items-end justify-between gap-2">
+          <div><p class="eyebrow">ACESSO</p><h3 class="section-title mt-1">Novos usuários</h3></div>
+          <span class="badge-warn">{{ pendingUsers.length }} aguardando</span>
+        </div>
+        <div class="grid gap-3 sm:grid-cols-2">
+          <article v-for="u in pendingUsers" :key="u.id" class="card admin-mobile-card">
+            <div class="flex items-start justify-between gap-3">
+              <div class="min-w-0"><b class="block truncate text-slate-100">{{ u.nickname }}</b><span class="mt-1 block truncate text-xs text-slate-400">{{ u.email }}</span></div>
+              <span class="badge-neutral shrink-0">{{ u.login_google ? "Google" : "Senha" }}</span>
+            </div>
+            <div class="mt-3 flex items-center justify-between gap-3 border-t border-slate-800 pt-3">
+              <span class="text-xs text-slate-500">{{ fmtDate(u.created_at) }}</span>
+              <button class="btn-primary !px-2.5 !py-1 text-xs" @click="approvePendingUser(u)">Liberar acesso</button>
+            </div>
+          </article>
+        </div>
+      </section>
+      <div v-if="!pend.length" class="card py-8 text-center text-sm text-slate-500">Nenhum record pendente.</div>
       <div class="grid gap-3">
         <div v-for="r in pend" :key="r.id" class="card">
           <div class="flex flex-wrap items-center gap-2 text-sm">
@@ -398,6 +435,7 @@ onMounted(async () => {
         </div>
       </div>
       <Pager :page="pendPage" :total="pendTotal" @change="renderPending" />
+      </template>
     </section>
 
     <!-- todos os records -->

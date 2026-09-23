@@ -56,7 +56,7 @@ Esse modo grava na planilha real. `.env` e `.env.local` sozinhos continuam usand
 
 - Ranking público com filtros por campo, faixa, método, vento e nickname.
 - BEST por categoria: campo + faixa + método + vento; menor score vence e Pang resolve empate.
-- Cadastro, login por senha e Google, perfil, troca de senha, privacidade e exclusão de conta.
+- Cadastro, login por senha e Google, perfil, troca de senha, privacidade e exclusão de conta. Novas contas começam bloqueadas e são liberadas pelo admin em Gerenciar → Revisar pedidos.
 - Records com vídeo e print; links de vídeo aceitam YouTube, Twitch, Vimeo, TikTok, Kick, Facebook e Instagram.
 - Fluxo de moderação: envio, revisão administrativa, votação comunitária ponderada, reabertura e reavaliação.
 - Usuários editam somente score, Pang, vídeo e print; toda alteração passa pelo admin. Em record publicado, score/Pang inicia nova votação comunitária, enquanto provas seguem apenas pela revisão administrativa.

@@ -28,6 +28,15 @@ function createIdentityModule(ports) {
     const { header, rows } = _rows("Users");
     return respond(_page(rows.map(r => { const u = _toObj(header, r); return { id: u.id, nickname: u.nickname, email: u.email, role: u.role, status: u.status || "active", bio: u.bio || "", youtube_url: u.youtube_url || "", points: _effPoints(u), created_at: u.created_at }; }), e.parameter));
   }
+  if (action === "listPendingUsers") {
+    if (!_isAdmin(e)) return respond({ erro: "Só admin" });
+    const { header, rows } = _rows("Users");
+    const pending = rows.map(r => _toObj(header, r))
+      .filter(user => String(user.status || "blocked") === "blocked")
+      .sort((a, b) => String(b.created_at || "").localeCompare(String(a.created_at || "")))
+      .map(user => ({ id: user.id, nickname: user.nickname, email: user.email, created_at: user.created_at, login_google: !!user.google_sub }));
+    return respond(_page(pending, e.parameter));
+  }
   if (action === "register") {
     const nickname = String(payload.nickname || "").trim();
     const email = String(payload.email || "").toLowerCase().trim();
