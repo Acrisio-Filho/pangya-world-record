@@ -62,6 +62,7 @@ Esse modo grava na planilha real. `.env` e `.env.local` sozinhos continuam usand
 - Usuários editam somente score, Pang, vídeo e print; toda alteração passa pelo admin. Em record publicado, score/Pang inicia nova votação comunitária, enquanto provas seguem apenas pela revisão administrativa.
 - Painel administrativo para pedidos, records, usuários, redefinição de senha e catálogo.
 - Tabelas responsivas, paginação, detalhes expansíveis e carregamento por demanda nas abas administrativas.
+- Leituras das abas usam cache de até 60 segundos no Apps Script; cada gravação invalida a aba alterada imediatamente.
 
 ## Regras de ranking e comunidade
 

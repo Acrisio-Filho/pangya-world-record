@@ -71,6 +71,12 @@ const PTS_IMPROVE_COM = 12; // melhoria aceita pela comunidade (metade)
 const METHODS = ["sem_ajuda", "com_ajuda"];
 // Vento: normal ou natural (parte da categoria, como o método)
 const WINDS = ["normal", "natural"];
+// Cache de snapshots das abas: reduz chamadas caras ao Sheets nas leituras
+// públicas. Toda escrita abaixo invalida a respectiva aba imediatamente.
+// O limite individual do CacheService é 100 KB; snapshots maiores continuam
+// funcionando sem cache.
+const SHEET_CACHE_TTL_SECONDS = 60;
+const SHEET_CACHE_MAX_BYTES = 90 * 1024;
 function _methodLabel(m) {
   return m === "sem_ajuda" ? "Sem ajuda" : m === "com_ajuda" ? "Com ajuda" : String(m || "");
 }
@@ -80,10 +86,36 @@ function _out(obj) {
 }
 function _ss() { return SpreadsheetApp.getActiveSpreadsheet(); }
 function _sheet(name) { return _ss().getSheetByName(name); }
+function _sheetCache() {
+  try { return typeof CacheService !== "undefined" ? CacheService.getScriptCache() : null; } catch (_) { return null; }
+}
+function _sheetCacheKey(name) { return "pwr:snapshot:v1:" + String(name); }
+function _clearSheetCache(name) {
+  const cache = _sheetCache();
+  if (!cache) return;
+  try { cache.remove(_sheetCacheKey(name)); } catch (_) { /* cache é opcional */ }
+}
 function _rows(name) {
+  const cache = _sheetCache();
+  const key = _sheetCacheKey(name);
+  if (cache) {
+    try {
+      const saved = cache.get(key);
+      if (saved) {
+        const v = JSON.parse(saved);
+        return v.length ? { header: v[0], rows: v.slice(1) } : { header: [], rows: [] };
+      }
+    } catch (_) { /* dado expirado/corrompido: lê a planilha normalmente */ }
+  }
   const sh = _sheet(name);
   if (!sh) return { header: [], rows: [] };
   const v = sh.getDataRange().getValues();
+  if (cache && v.length) {
+    try {
+      const serialized = JSON.stringify(v);
+      if (serialized.length <= SHEET_CACHE_MAX_BYTES) cache.put(key, serialized, SHEET_CACHE_TTL_SECONDS);
+    } catch (_) { /* cache é otimização, nunca bloqueia a leitura */ }
+  }
   if (v.length === 0) return { header: [], rows: [] };
   return { header: v[0], rows: v.slice(1) };
 }
@@ -102,6 +134,7 @@ function _page(arr, p) {
 }
 function _append(name, obj, header) {
   _sheet(name).appendRow(header.map(h => obj[h] !== undefined ? obj[h] : ""));
+  _clearSheetCache(name);
 }
 function _hash(s) {
   const bytes = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, SALT + s);
@@ -124,6 +157,7 @@ function _addPoints(userId, pts) {
   for (let i = 1; i < vals.length; i++) {
     if (String(vals[i][0]) === String(userId)) {
       sh.getRange(i + 1, ci + 1).setValue(Number(vals[i][ci] || 0) + pts);
+      _clearSheetCache("Users");
       return;
     }
   }
@@ -188,7 +222,7 @@ function _pruneSessions() {
   if (ei < 0) return;
   const now = new Date();
   for (let i = vals.length - 1; i >= 1; i--) {
-    if (new Date(vals[i][ei]) < now) sh.deleteRow(i + 1);
+    if (new Date(vals[i][ei]) < now) { sh.deleteRow(i + 1); _clearSheetCache("Sessions"); }
   }
 }
 function _newSession(userId) {
@@ -272,6 +306,7 @@ function _recalcBest(courseId, bandId, method, wind) {
   const out = [];
   for (let i = 1; i < vals.length; i++) out.push([inCat[i] ? (i === best ? "TRUE" : "") : vals[i][ci]]);
   sh.getRange(2, ci + 1, vals.length - 1, 1).setValues(out);
+  _clearSheetCache("Records");
 }
 
 
@@ -280,10 +315,10 @@ function _table(name) {
   const sheet = _sheet(name);
   return {
     read: () => sheet.getDataRange().getValues(),
-    remove: row => sheet.deleteRow(row),
+    remove: row => { sheet.deleteRow(row); _clearSheetCache(name); },
     range: (...args) => ({
-      write: value => sheet.getRange(...args).setValue(value),
-      writeMany: values => sheet.getRange(...args).setValues(values),
+      write: value => { sheet.getRange(...args).setValue(value); _clearSheetCache(name); },
+      writeMany: values => { sheet.getRange(...args).setValues(values); _clearSheetCache(name); },
     }),
   };
 }
