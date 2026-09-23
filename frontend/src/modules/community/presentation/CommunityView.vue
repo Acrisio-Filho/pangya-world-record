@@ -93,7 +93,7 @@ onMounted(() => reload(1));
     <details class="community-rules">
       <summary class="cursor-pointer font-medium text-slate-300">Regras da votação</summary>
       <p class="mt-2 leading-relaxed">
-        Votam usuários liberados (inclusive admin) com 10+ pontos, fora o próprio record. Pontos: +5/mês de conta (teto 60), +10 por record aceito pelo admin, +25 por record aceito pela comunidade.
+        Votam usuários liberados com 10+ pontos, fora o próprio record. Pontos: +5/mês de conta (teto 60), +10 por record aceito pelo admin, +25 por record aceito pela comunidade.
         Peso do voto = pontos. Dá p/ votar de novo e trocar o voto — vale o último, com seu peso atual. Aprova com peso 50+, 3+ votantes e mais que o dobro de rejeitar (vale o contrário p/ rejeitar).
         Rejeição não é final: o record volta p/ a fila do admin — confirmar tira do index, devolver manda de volta p/ votar (zera os votos). Se o dono editar o record depois do voto, os votos antigos são apagados e vocês votam a versão nova.
       </p>
@@ -112,7 +112,7 @@ onMounted(() => reload(1));
 
     <p v-if="sessionWarning" class="mb-4 text-sm text-amber-200" role="status">{{ sessionWarning }}</p>
     <div v-if="error" class="state-panel" role="alert"><p>{{ error }}</p><button class="btn-secondary" @click="reload(page)">Tentar novamente</button></div>
-    <div v-else-if="loading" class="state-panel" role="status">Carregando votações…</div>
+    <div v-else-if="loading" class="state-panel" role="status"><div class="loading-orbit"></div><p>Carregando votações…</p></div>
     <div v-else-if="loaded && !cands.length" class="card py-10 text-center text-sm text-slate-500">Sem candidatos no momento.</div>
 
     <div v-if="!loading && !error" class="community-candidates">
@@ -135,8 +135,8 @@ onMounted(() => reload(1));
             <span v-if="myVotes[r.id]" class="community-my-vote">Seu voto: <b>{{ myVotes[r.id] }}</b></span>
           </div>
           <div v-if="!sessionWarning && auth.isLoggedIn && auth.user?.id !== r.user_id && auth.user?.status === 'active' && Number(auth.user?.points) >= 10" class="community-vote-actions">
-            <button class="btn-primary !bg-emerald-600 !shadow-emerald-600/30 hover:!bg-emerald-500" :disabled="!!voting" @click="vote(r.id, 'approve')">{{ voting === r.id ? "Registrando…" : "Aprovar" }}</button>
-            <button class="btn-danger" :disabled="!!voting" @click="vote(r.id, 'reject')">Rejeitar</button>
+            <button class="community-vote-button is-approve" :class="{ 'is-selected': myVotes[r.id] === 'approve' }" :disabled="!!voting" @click="vote(r.id, 'approve')"><span aria-hidden="true">👍</span>{{ voting === r.id ? "Registrando…" : "Aprovar" }}</button>
+            <button class="community-vote-button is-reject" :class="{ 'is-selected': myVotes[r.id] === 'reject' }" :disabled="!!voting" @click="vote(r.id, 'reject')"><span aria-hidden="true">👎</span>{{ voting === r.id ? "Registrando…" : "Reprovar" }}</button>
           </div>
           <i v-else class="community-vote-note">{{ !auth.isLoggedIn ? "Entre para votar" : auth.user?.id === r.user_id ? "Você não vota no próprio record" : "Votação disponível para contas ativas com 10+ pontos" }}</i>
         </div>

@@ -157,7 +157,7 @@ function _isLiveRow(head, r) {
   // live no index: approved + comunidade aprovou
   return RecordPolicy.isPublished(_toObj(head, r));
 }
-function _makeProposal(sh, head, col, origIdx, vals, u, data) {
+function _makeProposal(sh, head, col, origIdx, vals, u, data, preserveCommunity = false) {
   // Melhoria de record live: cria linha pendente ligada ao original (que segue valendo).
   const o = _toObj(head, vals[origIdx]);
   const rec = {
@@ -172,7 +172,9 @@ function _makeProposal(sh, head, col, origIdx, vals, u, data) {
     screenshot_url: String(data.screenshot_url !== undefined ? data.screenshot_url : (o.screenshot_url || "")),
     video_url: String(data.video_url !== undefined ? data.video_url : (o.video_url || "")),
     status: "pending", submitted_at: new Date().toISOString(), validated_by: "", validated_at: "",
-    note: "", is_best: "", community: "0", pts_admin: "", pts_com: "", edited: "TRUE"
+    // Mudança apenas nas provas ainda exige aprovação do admin, mas não
+    // descarta uma aprovação comunitária já obtida pelo mesmo score/Pang.
+    note: "", is_best: "", community: preserveCommunity ? "1" : "0", pts_admin: "", pts_com: "", edited: "TRUE"
   };
   const { header } = _rows("Records");
   _append("Records", rec, header);

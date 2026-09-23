@@ -157,7 +157,7 @@ button { cursor: pointer; }
 .community-search { display: flex; flex-wrap: wrap; align-items: end; gap: 9px; margin: 16px 0; padding: 12px; border: 1px solid #2d4740; border-radius: 12px; background: #10221f; }
 .community-search label { width: 100%; color: #9bb3b2; font-size: 11px; font-weight: 700; }
 .community-search .field { flex: 1 1 190px; min-width: 0; }
-.community-search .btn-primary, .community-search .btn-secondary { min-height: 42px; }
+.community-search .btn-primary, .community-search .btn-secondary { min-height: 0; padding: 8px 13px; }
 .community-rules { margin-top: 14px; padding: 15px 17px; border: 1px solid #2b403e; border-radius: 12px; background: #101e26; color: #9caeb4; font-size: 12px; }
 .community-rules summary { color: #d2dedf; }
 .community-session { margin: 14px 0 20px; padding: 10px 13px; border-left: 3px solid #b4f272; background: #b4f2720d; color: #aebfc3; font-size: 12px; }
@@ -420,3 +420,9 @@ textarea.field:disabled { cursor: not-allowed; opacity: .55; }
 input.field[type="number"] { appearance: textfield; -moz-appearance: textfield; }
 input.field[type="number"]::-webkit-inner-spin-button,
 input.field[type="number"]::-webkit-outer-spin-button { appearance: none; margin: 0; }
+.community-vote-button { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-width: 106px; min-height: 38px; padding: 8px 12px; border: 1px solid transparent; border-radius: 9px; font-size: 12px; font-weight: 750; transition: transform .15s, filter .15s, border-color .15s; }
+.community-vote-button:hover:not(:disabled) { transform: translateY(-1px); filter: brightness(1.08); }
+.community-vote-button:disabled { cursor: wait; opacity: .65; }
+.community-vote-button.is-approve { border-color: #4e9770; background: #174c35; color: #d8f8df; box-shadow: 0 5px 16px #0a291a55; }
+.community-vote-button.is-reject { border-color: #974f5b; background: #4e1e28; color: #ffdce1; box-shadow: 0 5px 16px #300c1555; }
+.community-vote-button.is-selected { outline: 2px solid #d9ffb9; outline-offset: 2px; }

@@ -20,6 +20,8 @@ const lookups = useLookupsStore();
 const courses = ref([]);
 const bands = ref([]);
 const activeTab = ref("pending");
+const tabLoaded = reactive({ pending: false, records: false, users: false, catalog: false });
+const tabLoading = reactive({ pending: false, records: false, users: false, catalog: false });
 const adminTabs = [
   { id: "pending", label: "Revisar pedidos", hint: "Validação" },
   { id: "records", label: "Records", hint: "Index e edição" },
@@ -34,13 +36,17 @@ const pendPage = ref(1);
 const pendRealloc = reactive({}); // id -> { course_id, powerband_id, note }
 
 async function renderPending(page = 1) {
+  tabLoading.pending = true;
   pendPage.value = page;
-  const { rows, total } = await apiPage("listPending", {}, page);
-  pend.value = rows;
-  pendTotal.value = total;
-  rows.forEach((r) => {
-    if (!pendRealloc[r.id]) pendRealloc[r.id] = { course_id: r.course_id, powerband_id: r.powerband_id, note: "" };
-  });
+  try {
+    const { rows, total } = await apiPage("listPending", {}, page);
+    pend.value = rows;
+    pendTotal.value = total;
+    rows.forEach((r) => {
+      if (!pendRealloc[r.id]) pendRealloc[r.id] = { course_id: r.course_id, powerband_id: r.powerband_id, note: "" };
+    });
+    tabLoaded.pending = true;
+  } finally { tabLoading.pending = false; }
 }
 
 function pendBadge(r) {
@@ -99,10 +105,14 @@ const allTotal = ref(0);
 const allPage = ref(1);
 
 async function reloadAllRecords(page = 1) {
+  tabLoading.records = true;
   allPage.value = page;
-  const { rows, total, erro } = await apiPage("listRecords", ALL_FILTERS[allFilter.value] || ALL_FILTERS.all, page);
-  allRows.value = erro ? [] : rows;
-  allTotal.value = total;
+  try {
+    const { rows, total, erro } = await apiPage("listRecords", ALL_FILTERS[allFilter.value] || ALL_FILTERS.all, page);
+    allRows.value = erro ? [] : rows;
+    allTotal.value = total;
+    tabLoaded.records = true;
+  } finally { tabLoading.records = false; }
 }
 
 // ---- editar record (form) ----
@@ -223,10 +233,14 @@ function userStatusBadge(status) {
 }
 
 async function reloadUsers(page = 1) {
+  tabLoading.users = true;
   usersPage.value = page;
-  const { rows, total } = await apiPage("listUsers", {}, page);
-  users.value = rows;
-  usersTotal.value = total;
+  try {
+    const { rows, total } = await apiPage("listUsers", {}, page);
+    users.value = rows;
+    usersTotal.value = total;
+    tabLoaded.users = true;
+  } finally { tabLoading.users = false; }
 }
 async function toggleUserStatus(u) {
   const to = u.status === "active" ? "blocked" : "active";
@@ -266,9 +280,22 @@ async function resetUserPassword() {
 
 // ---- courses / faixas ----
 async function reloadTables() {
-  const [c, b] = await Promise.all([apiGet("listCourses", { include_inactive: "1" }), apiGet("listBands", { include_inactive: "1" })]);
-  courses.value = c;
-  bands.value = b;
+  tabLoading.catalog = true;
+  try {
+    const [c, b] = await Promise.all([apiGet("listCourses", { include_inactive: "1" }), apiGet("listBands", { include_inactive: "1" })]);
+    courses.value = c;
+    bands.value = b;
+    tabLoaded.catalog = true;
+  } finally { tabLoading.catalog = false; }
+}
+
+async function selectTab(id) {
+  activeTab.value = id;
+  if (tabLoaded[id] || tabLoading[id]) return;
+  if (id === "pending") await renderPending(1);
+  else if (id === "records") await reloadAllRecords(1);
+  else if (id === "users") await reloadUsers(1);
+  else if (id === "catalog") await reloadTables();
 }
 
 const courseForm = reactive({ id: "", name: "", active: true });
@@ -316,8 +343,7 @@ async function deleteBand(b) {
 }
 
 onMounted(async () => {
-  await Promise.all([reloadTables(), lookups.ensure()]);
-  await Promise.all([renderPending(1), reloadAllRecords(1), reloadUsers(1)]);
+  await Promise.all([lookups.ensure(), selectTab("pending")]);
 });
 </script>
 
@@ -328,7 +354,7 @@ onMounted(async () => {
     <div class="admin-layout">
       <nav class="admin-tabs" aria-label="Seções de gerenciamento" role="tablist">
         <p class="admin-tabs-title">Painel administrativo</p>
-        <button v-for="tab in adminTabs" :key="tab.id" type="button" class="admin-tab" :class="{ 'is-active': activeTab === tab.id }" :aria-selected="activeTab === tab.id" :aria-controls="`admin-${tab.id}`" role="tab" @click="activeTab = tab.id">
+        <button v-for="tab in adminTabs" :key="tab.id" type="button" class="admin-tab" :class="{ 'is-active': activeTab === tab.id }" :aria-selected="activeTab === tab.id" :aria-controls="`admin-${tab.id}`" role="tab" @click="selectTab(tab.id)">
           <span>{{ tab.label }}</span>
           <small>{{ tab.hint }}</small>
         </button>
@@ -338,7 +364,8 @@ onMounted(async () => {
     <!-- pendentes -->
     <section v-show="activeTab === 'pending'" id="admin-pending" role="tabpanel">
       <h2 class="section-title mb-3">Records pendentes</h2>
-      <div v-if="!pend.length" class="card py-8 text-center text-sm text-slate-500">Nada pendente.</div>
+      <div v-if="tabLoading.pending" class="state-panel" role="status"><div class="loading-orbit"></div><p>Carregando pedidos…</p></div>
+      <div v-else-if="!pend.length" class="card py-8 text-center text-sm text-slate-500">Nada pendente.</div>
       <div class="grid gap-3">
         <div v-for="r in pend" :key="r.id" class="card">
           <div class="flex flex-wrap items-center gap-2 text-sm">
@@ -388,7 +415,7 @@ onMounted(async () => {
         <option value="proposal">Propostas</option>
         <option value="edited">Edições</option>
       </AppSelect>
-      <RecordsTable :records="allRows" :show-status="true" :show-community="true" :show-type="true" :show-note="true" empty-text="Nada aqui.">
+      <RecordsTable :records="allRows" :loading="tabLoading.records" :show-status="true" :show-community="true" :show-type="true" :show-note="true" empty-text="Nada aqui.">
         <template #actions="{ record: r }">
           <div class="flex flex-wrap gap-1.5">
             <button class="btn-secondary !px-2.5 !py-1 text-xs" @click="editRecord(r)">Editar</button>
@@ -459,7 +486,8 @@ onMounted(async () => {
           </div>
         </form>
       </section>
-      <div class="thin-scroll hidden overflow-x-auto rounded-xl border border-slate-800 md:block">
+      <div v-if="tabLoading.users" class="state-panel" role="status"><div class="loading-orbit"></div><p>Carregando usuários…</p></div>
+      <template v-else><div class="thin-scroll hidden overflow-x-auto rounded-xl border border-slate-800 md:block">
         <table class="w-full min-w-[560px] border-collapse text-sm">
           <thead>
             <tr class="border-b border-slate-800 bg-slate-900/70 text-left text-xs tracking-wide text-slate-400 uppercase">
@@ -509,11 +537,13 @@ onMounted(async () => {
           </div>
         </article>
       </div>
-      <Pager :page="usersPage" :total="usersTotal" @change="reloadUsers" />
+      <Pager :page="usersPage" :total="usersTotal" @change="reloadUsers" /></template>
     </section>
 
     <!-- courses -->
     <div v-show="activeTab === 'catalog'" id="admin-catalog" role="tabpanel">
+    <div v-if="tabLoading.catalog" class="state-panel" role="status"><div class="loading-orbit"></div><p>Carregando catálogo…</p></div>
+    <template v-else>
     <section>
       <h2 class="section-title mb-3">Courses</h2>
       <div class="thin-scroll hidden overflow-x-auto rounded-xl border border-slate-800 md:block">
@@ -614,6 +644,7 @@ onMounted(async () => {
         </div>
       </form>
     </section>
+    </template>
     </div>
       </div>
     </div>

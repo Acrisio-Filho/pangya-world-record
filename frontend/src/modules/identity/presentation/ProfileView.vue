@@ -134,7 +134,7 @@ onMounted(load);
 </script>
 
 <template>
-  <div v-if="loading" class="state-panel" role="status">Carregando perfil…</div>
+  <div v-if="loading" class="state-panel" role="status"><div class="loading-orbit"></div><p>Carregando perfil…</p></div>
 
   <div v-else-if="erro" class="state-panel" role="alert">
     <h1>Não foi possível abrir o perfil</h1>

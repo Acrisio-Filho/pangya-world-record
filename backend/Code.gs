@@ -213,7 +213,7 @@ function _isLiveRow(head, r) {
   // live no index: approved + comunidade aprovou
   return RecordPolicy.isPublished(_toObj(head, r));
 }
-function _makeProposal(sh, head, col, origIdx, vals, u, data) {
+function _makeProposal(sh, head, col, origIdx, vals, u, data, preserveCommunity = false) {
   // Melhoria de record live: cria linha pendente ligada ao original (que segue valendo).
   const o = _toObj(head, vals[origIdx]);
   const rec = {
@@ -228,7 +228,9 @@ function _makeProposal(sh, head, col, origIdx, vals, u, data) {
     screenshot_url: String(data.screenshot_url !== undefined ? data.screenshot_url : (o.screenshot_url || "")),
     video_url: String(data.video_url !== undefined ? data.video_url : (o.video_url || "")),
     status: "pending", submitted_at: new Date().toISOString(), validated_by: "", validated_at: "",
-    note: "", is_best: "", community: "0", pts_admin: "", pts_com: "", edited: "TRUE"
+    // Mudança apenas nas provas ainda exige aprovação do admin, mas não
+    // descarta uma aprovação comunitária já obtida pelo mesmo score/Pang.
+    note: "", is_best: "", community: preserveCommunity ? "1" : "0", pts_admin: "", pts_com: "", edited: "TRUE"
   };
   const { header } = _rows("Records");
   _append("Records", rec, header);
@@ -654,7 +656,9 @@ function createRecordsModule(ports) {
     let recs = rows.map(r => _toObj(header, r));
     if (status !== "all") recs = recs.filter(x => String(x.status) === status);
     if (p.community === "1" || p.community === "0" || p.community === "-1") recs = recs.filter(x => Number(x.community || 0) === Number(p.community));
-    if (p.best === "1") recs = recs.filter(x => x.is_best === "TRUE");
+    // Sheets converte "TRUE" para booleano em algumas planilhas. Trate os dois
+    // formatos para que o BEST não suma do ranking em produção.
+    if (p.best === "1") recs = recs.filter(x => String(x.is_best).toUpperCase() === "TRUE");
     if (p.proposal === "1") recs = recs.filter(x => String(x.edit_of || "") !== "");
     if (p.edited === "1") recs = recs.filter(x => x.edited === "TRUE" && !x.edit_of);
     if (p.course_id) recs = recs.filter(x => String(x.course_id) === String(p.course_id));
@@ -838,6 +842,13 @@ function createRecordsModule(ports) {
     const isOwner = String(rec.user_id) === String(u.id);
     if (!isOwner && !isAdmin) return respond({ erro: "Só o dono pode editar" });
     if ((u.status || "active") !== "active") return respond({ erro: "Conta bloqueada — aguarde liberação do admin" });
+    // Gerenciar manda direct:true (só vale p/ admin). Fora dele, até o admin
+    // que é dono usa as mesmas permissões de jogador e entra na revisão.
+    const direct = isAdmin && payload.direct === true;
+    const ownerFields = ["score", "pang", "screenshot_url", "video_url"];
+    if (isOwner && !direct && Object.keys(data).some(key => !ownerFields.includes(key))) {
+      return respond({ erro: "Você só pode editar score, pang, vídeo e print. As demais informações são definidas na revisão." });
+    }
     // Validate the complete proposed version before any persistence operation.
     try { RecordDraft(Object.assign({}, rec, data)); } catch (error) { return respond({ erro: error.message }); }
     if (data.course_id !== undefined) {
@@ -851,9 +862,7 @@ function createRecordsModule(ports) {
     } else if (data.power_value !== undefined) resolvedBand = _bandForPower(Number(data.power_value));
     if ((data.powerband_id || data.power_value !== undefined) && !resolvedBand) return respond({ erro: "Faixa de força não encontrada p/ power_value=" + data.power_value });
     if (resolvedBand && String(resolvedBand.active).toUpperCase() !== "TRUE") return respond({ erro: "Faixa desativada" });
-    // Gerenciar manda direct:true (só vale p/ admin): edita direto qualquer um, inclusive o próprio.
     // Pelo Meus records todo mundo (inclusive admin) segue a regra comum: live vira proposta.
-    const direct = isAdmin && payload.direct === true;
     if (isOwner && !direct && _isLiveRow(head, vals[ri])) {
       // Dono melhorando o próprio record live (mesmo sendo admin): vira proposta,
       // original segue valendo. Só admin editando record DE TERCEIROS altera direto.
@@ -866,10 +875,14 @@ function createRecordsModule(ports) {
         const v = data.video_url !== undefined ? String(data.video_url) : String(rec.video_url || "");
         if (!v.trim()) return respond({ erro: "Sem ajuda exige vídeo de prova" });
       }
-      const id = _makeProposal(sh, head, col, ri, vals, u, data);
-      return respond({ status: "ok", id, proposal: true });
+      const scoreOrPangChanged = (data.score !== undefined && Number(data.score) !== Number(rec.score))
+        || (data.pang !== undefined && Number(data.pang) !== Number(rec.pang || 0));
+      // Proof-only updates go through the admin but retain the community
+      // decision; score/Pang changes create a new community review.
+      const id = _makeProposal(sh, head, col, ri, vals, u, data, !scoreOrPangChanged);
+      return respond({ status: "ok", id, proposal: true, communityReview: scoreOrPangChanged });
     }
-    const FIELDS = ["course_id", "power_value", "score", "pang", "screenshot_url", "video_url"];
+    const FIELDS = isOwner && !direct ? ownerFields : ["course_id", "power_value", "score", "pang", "screenshot_url", "video_url"];
     FIELDS.forEach(k => { if (data[k] !== undefined) sh.range(ri + 1, col(k)).write(data[k]); });
     if (data.wind !== undefined && col("wind") > 0) sh.range(ri + 1, col("wind")).write(String(data.wind));
     if (data.method !== undefined && col("method") > 0) sh.range(ri + 1, col("method")).write(String(data.method));

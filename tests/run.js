@@ -107,6 +107,7 @@ ok(G("listRecords", { course_id: "blue_water" }).length === 1, "filtro por cours
 
 console.log("== updateRecord ==");
 ok(P("updateRecord", { token: userTok, id: "inexistente", data: { score: -26 } }).erro, "update record inexistente bloqueia");
+ok(P("updateRecord", { token: userTok, id: sub.id, data: { method: "sem_ajuda" } }).erro, "dono não altera método");
 ok(P("updateRecord", { token: userTok, id: sub.id, data: { score: -26 } }).status === "ok", "dono edita próprio record");
 const mine = G("listRecords", { user_id: userId, status: "all", token: userTok });
 ok(mine.length === 1 && mine[0].status === "pending" && mine[0].score === "-26", "edição do dono volta p/ pending");
@@ -353,6 +354,11 @@ P("validateRecord", { token: adminTok, id: prop2.id, status: "rejected" });
 const afterRej = G("listRecords", { user_id: userId, status: "all", token: userTok });
 ok(afterRej.find((r) => r.id === cand.id).score === "-29", "original intacto após reject");
 ok(afterRej.find((r) => r.id === prop2.id).status === "rejected", "proposta rejeitada no histórico");
+const proofProp = P("updateRecord", { token: userTok, id: cand.id, data: { screenshot_url: "https://example.com/prova.png" } });
+ok(proofProp.proposal === true && proofProp.communityReview === false, "prova de live passa só pelo admin");
+ok(G("listRecords", { user_id: userId, status: "all", token: userTok }).find((r) => r.id === proofProp.id).community === "1", "proposta de prova preserva comunidade");
+ok(P("validateRecord", { token: adminTok, id: proofProp.id, status: "approved" }).merged === true, "admin aplica prova sem nova votação");
+ok(G("listRecords", { user_id: userId, status: "all", token: userTok }).find((r) => r.id === cand.id).screenshot_url === "https://example.com/prova.png", "prova aprovada atualiza original");
 const admRec = P("submitRecord", { token: adminTok, course_id: "blue_lagoon", power_value: 250, score: -18, method: "com_ajuda", wind: "normal" });
 P("validateRecord", { token: adminTok, id: admRec.id, status: "approved", community_ok: true });
 const admProp = P("updateRecord", { token: adminTok, id: admRec.id, data: { score: -19 } });
