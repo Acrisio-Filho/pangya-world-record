@@ -248,14 +248,8 @@ tbody td { padding-top: 17px !important; padding-bottom: 17px !important; }
 .password-requirements { display: grid; gap: 3px; padding: 9px 11px; border-left: 2px solid #7fae62; border-radius: 0 7px 7px 0; background: #b4f2720c; color: #9bb1b5; font-size: 10px; line-height: 1.55; }
 .password-requirements b { color: #c7e8b2; font-size: 10px; font-weight: 700; }
 .google-auth-wrap { display: grid; gap: 9px; padding: 11px; border: 1px solid #30473f; border-radius: 11px; background: linear-gradient(120deg, #14221f, #111e27); }
-.google-button { position: relative; width: 100%; min-height: 44px; }
-.google-button-visual { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; gap: 11px; min-height: 44px; border: 1px solid #497363; border-radius: 8px; background: linear-gradient(135deg, #19342d, #152b31); box-shadow: inset 0 1px #ffffff0d, 0 5px 14px #02080b33; color: #f4fbf6; font-size: 13px; font-weight: 700; transition: border-color .2s, background .2s, transform .2s; }
-.google-button:hover .google-button-visual { border-color: #81c99e; background: linear-gradient(135deg, #204337, #19383b); transform: translateY(-1px); }
-.google-button-visual svg { width: 19px; height: 19px; padding: 3px; border-radius: 5px; background: #fff; }
-/* O GIS continua recebendo o clique e emitindo o ID token; fica invisível
-   para que a aparência seja estável em todos os navegadores. */
-.google-button-mount { position: absolute; inset: 0; z-index: 1; display: flex; justify-content: center; opacity: 0; }
-.google-button-mount iframe { display: block; border: 0; }
+.google-button { display: flex; justify-content: center; width: 100%; min-height: 40px; overflow: hidden; border-radius: 7px; }
+.google-button > div, .google-button iframe { max-width: 100% !important; }
 .google-auth-wrap p { color: #879da1; text-align: center; font-size: 10px; line-height: 1.5; }
 @media (max-width: 650px) { .auth-shell { grid-template-columns: 1fr; margin-top: 0; } .auth-art { display: none; } .auth-content { padding: 30px 22px; } }
 
