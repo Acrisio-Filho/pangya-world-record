@@ -103,7 +103,7 @@ Leia [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) para as portas, limites e deci
 5. No GitHub, configure os secrets `PWR_URL_EXEC`, `PWR_ORIGEM_TOKEN` e `PWR_GOOGLE_CLIENT_ID`.
 6. Configure GitHub Pages para usar GitHub Actions. O workflow executa testes, gera `frontend/public/config.js`, compila o frontend e publica `frontend/dist` ao enviar mudanças para `main` ou acioná-lo manualmente.
 
-O workflow não publica o Apps Script. As rotas usam hash, como `#/community`, para funcionar no GitHub Pages. As configurações do navegador são públicas: nunca inclua `SALT`, planilhas ou dados privados nelas.
+O workflow não publica o Apps Script. As rotas usam URLs normais, como `/pangya-world-record/community`; o `404.html` restaura deep-links no GitHub Pages. As configurações do navegador são públicas: nunca inclua `SALT`, planilhas ou dados privados nelas.
 
 ## Arte e licença
 

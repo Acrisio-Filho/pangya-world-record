@@ -9,6 +9,17 @@
 </head>
 <body class="bg-slate-950 text-slate-100 antialiased">
   <div id="app"></div>
+  <script>
+    // O 404.html do GitHub Pages codifica deep-links em `pwr_route`. Restaura
+    // a URL original antes de o Vue Router criar a rota atual.
+    (function (location) {
+      var params = new URLSearchParams(location.search);
+      var route = params.get("pwr_route");
+      if (!route) return;
+      var base = location.pathname.replace(/\/$/, "");
+      window.history.replaceState(null, "", base + route);
+    }(window.location));
+  </script>
   <script src="%BASE_URL%config.js"></script>
   <script src="https://accounts.google.com/gsi/client" async defer></script>
   <script type="module" src="/src/main.js"></script>
