@@ -21,6 +21,5 @@ export function installNavigationRecovery(router) {
 }
 
 export function reloadRoute(router, target) {
-  window.location.hash = router.resolve(target).href.split("#")[1] || "/";
-  window.location.reload();
+  window.location.assign(router.resolve(target).href);
 }

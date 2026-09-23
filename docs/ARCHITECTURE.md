@@ -32,7 +32,7 @@ flowchart LR
 - **Domínio:** `RecordDraft`, objeto imutável que valida dados de uma partida; `RecordPolicy`, publicação e desempate; `VotingPolicy`, decisão do quórum; `effectivePoints`, cálculo determinístico de pontos com data explícita. Não dependem de Vue, HTTP, arquivos ou Google.
 - **Aplicação:** fábricas `createIdentityModule`, `createCatalogModule`, `createRecordsModule` e `createCommunityModule`. Dependências são recebidas em `ports`. Orquestram autorização, leitura, domínio e persistência. Retornam objetos comuns.
 - **Entrada:** `adapters/http.js` interpreta o protocolo legado, rejeita ações não registradas e serializa as respostas. O lock de escrita engloba a execução de um caso de uso.
-- **Saída:** `infrastructure/google-apps-script.js` encapsula acesso à planilha, hash, sessões e validação de tokens Google. Snapshots de abas com até 90 KB usam `CacheService` por 60 segundos; toda escrita invalida sua aba. Nenhum objeto `SpreadsheetApp` é entregue aos módulos.
+- **Saída:** `infrastructure/google-apps-script.js` encapsula acesso à planilha, hash, sessões e validação de tokens Google. Snapshots de abas usam `CacheService` compactado por cinco minutos; toda escrita invalida sua aba. Nenhum objeto `SpreadsheetApp` é entregue aos módulos.
 - **Composição:** `composition.js` injeta implementações e mapeia ações para o módulo responsável. `Code.gs` é concatenação determinística das fontes, sem dependência de npm no runtime Google.
 
 ## Portas de saída

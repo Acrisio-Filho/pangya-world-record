@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Redirecionando… | Pangya World Record</title>
+  <meta http-equiv="refresh" content="3;url=/pangya-world-record/">
+</head>
+<body>
+  <p>Redirecionando para Pangya World Record…</p>
+  <script>
+    (function () {
+      var base = "/pangya-world-record";
+      var route = location.pathname.indexOf(base + "/") === 0
+        ? location.pathname.slice(base.length)
+        : location.pathname;
+      var target = base + "/?pwr_route=" + encodeURIComponent(route + location.search + location.hash);
+      location.replace(target);
+    }());
+  </script>
+</body>
+</html>

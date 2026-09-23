@@ -62,7 +62,7 @@ Esse modo grava na planilha real. `.env` e `.env.local` sozinhos continuam usand
 - Usuários editam somente score, Pang, vídeo e print; toda alteração passa pelo admin. Em record publicado, score/Pang inicia nova votação comunitária, enquanto provas seguem apenas pela revisão administrativa.
 - Painel administrativo para pedidos, records, usuários, redefinição de senha e catálogo.
 - Tabelas responsivas, paginação, detalhes expansíveis e carregamento por demanda nas abas administrativas.
-- Leituras das abas usam cache de até 60 segundos no Apps Script; cada gravação invalida a aba alterada imediatamente.
+- Leituras das abas usam cache compactado de até 5 minutos no Apps Script; cada gravação invalida a aba alterada imediatamente.
 - Login por senha limita cinco tentativas falhas por e-mail a cada 5 minutos; sessões encerram após 30 minutos sem atividade. O Apps Script não expõe o IP remoto de forma confiável; limite por IP requer proxy/WAF na frente da API.
 
 ## Regras de ranking e comunidade
@@ -103,7 +103,7 @@ Leia [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) para as portas, limites e deci
 5. No GitHub, configure os secrets `PWR_URL_EXEC`, `PWR_ORIGEM_TOKEN` e `PWR_GOOGLE_CLIENT_ID`.
 6. Configure GitHub Pages para usar GitHub Actions. O workflow executa testes, gera `frontend/public/config.js`, compila o frontend e publica `frontend/dist` ao enviar mudanças para `main` ou acioná-lo manualmente.
 
-O workflow não publica o Apps Script. As rotas usam hash, como `#/community`, para funcionar no GitHub Pages. As configurações do navegador são públicas: nunca inclua `SALT`, planilhas ou dados privados nelas.
+O workflow não publica o Apps Script. As rotas usam URLs normais, como `/pangya-world-record/community`; o `404.html` restaura deep-links no GitHub Pages. As configurações do navegador são públicas: nunca inclua `SALT`, planilhas ou dados privados nelas.
 
 ## Arte e licença
 

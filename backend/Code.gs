@@ -77,9 +77,9 @@ const METHODS = ["sem_ajuda", "com_ajuda"];
 const WINDS = ["normal", "natural"];
 // Cache de snapshots das abas: reduz chamadas caras ao Sheets nas leituras
 // públicas. Toda escrita abaixo invalida a respectiva aba imediatamente.
-// O limite individual do CacheService é 100 KB; snapshots maiores continuam
-// funcionando sem cache.
-const SHEET_CACHE_TTL_SECONDS = 60;
+// O limite individual do CacheService é 100 KB. Snapshots são compactados
+// quando necessário para manter Records no cache mesmo em planilhas maiores.
+const SHEET_CACHE_TTL_SECONDS = 5 * 60;
 const SHEET_CACHE_MAX_BYTES = 90 * 1024;
 function _methodLabel(m) {
   return m === "sem_ajuda" ? "Sem ajuda" : m === "com_ajuda" ? "Com ajuda" : String(m || "");
@@ -93,7 +93,7 @@ function _sheet(name) { return _ss().getSheetByName(name); }
 function _sheetCache() {
   try { return typeof CacheService !== "undefined" ? CacheService.getScriptCache() : null; } catch (_) { return null; }
 }
-function _sheetCacheKey(name) { return "pwr:snapshot:v1:" + String(name); }
+function _sheetCacheKey(name) { return "pwr:snapshot:v2:" + String(name); }
 function _clearSheetCache(name) {
   const cache = _sheetCache();
   if (!cache) return;
@@ -123,6 +123,17 @@ function _clearFailedLogins(email) {
   if (!cache) return;
   try { cache.remove(_loginCacheKey(email)); } catch (_) { /* cache é opcional */ }
 }
+function _readSheetSnapshot(value) {
+  if (!String(value).startsWith("gz:")) return JSON.parse(value);
+  const bytes = Utilities.base64DecodeWebSafe(String(value).slice(3));
+  return JSON.parse(Utilities.ungzip(Utilities.newBlob(bytes)).getDataAsString());
+}
+function _writeSheetSnapshot(rows) {
+  const plain = JSON.stringify(rows);
+  if (plain.length <= SHEET_CACHE_MAX_BYTES) return plain;
+  const compressed = Utilities.base64EncodeWebSafe(Utilities.gzip(Utilities.newBlob(plain, "application/json")).getBytes());
+  return compressed.length <= SHEET_CACHE_MAX_BYTES ? "gz:" + compressed : "";
+}
 function _rows(name) {
   const cache = _sheetCache();
   const key = _sheetCacheKey(name);
@@ -130,7 +141,7 @@ function _rows(name) {
     try {
       const saved = cache.get(key);
       if (saved) {
-        const v = JSON.parse(saved);
+        const v = _readSheetSnapshot(saved);
         return v.length ? { header: v[0], rows: v.slice(1) } : { header: [], rows: [] };
       }
     } catch (_) { /* dado expirado/corrompido: lê a planilha normalmente */ }
@@ -140,8 +151,8 @@ function _rows(name) {
   const v = sh.getDataRange().getValues();
   if (cache && v.length) {
     try {
-      const serialized = JSON.stringify(v);
-      if (serialized.length <= SHEET_CACHE_MAX_BYTES) cache.put(key, serialized, SHEET_CACHE_TTL_SECONDS);
+      const serialized = _writeSheetSnapshot(v);
+      if (serialized) cache.put(key, serialized, SHEET_CACHE_TTL_SECONDS);
     } catch (_) { /* cache é otimização, nunca bloqueia a leitura */ }
   }
   if (v.length === 0) return { header: [], rows: [] };

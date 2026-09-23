@@ -1,9 +1,11 @@
-import { createRouter, createWebHashHistory } from "vue-router";
+import { createRouter, createWebHistory } from "vue-router";
 import { useAuthStore } from "./stores/auth";
 import { useToastStore } from "./stores/toast";
 
-// Hash history: GitHub Pages não faz rewrite de rotas p/ index.html, então
-// URLs tipo #/perfil evitam 404 em refresh/deep-link sem precisar de truque no 404.html.
+// Local usa a raiz; Pages usa o nome do repositório como base. O 404.html
+// público restaura deep-links do GitHub Pages antes de o Vue iniciar.
+const isLocalHost = ["localhost", "127.0.0.1"].includes(window.location.hostname);
+const routerBase = isLocalHost ? "/" : import.meta.env.BASE_URL;
 const routes = [
   { path: "/", name: "home", component: () => import("./modules/records/presentation/HomeView.vue") },
   { path: "/login", name: "login", component: () => import("./modules/identity/presentation/LoginView.vue") },
@@ -14,11 +16,11 @@ const routes = [
   { path: "/admin", name: "admin", component: () => import("./modules/administration/presentation/AdminView.vue"), meta: { requiresAdmin: true } },
   { path: "/privacy", name: "privacy", component: () => import("./modules/identity/presentation/PrivacyView.vue") },
   { path: "/terms", name: "terms", component: () => import("./modules/identity/presentation/TermsView.vue") },
-  { path: "/:pathMatch(.*)*", redirect: "/" },
+  { path: "/:pathMatch(.*)*", name: "not-found", component: () => import("./components/NotFoundView.vue") },
 ];
 
 export const router = createRouter({
-  history: createWebHashHistory(),
+  history: createWebHistory(routerBase),
   routes,
   scrollBehavior() {
     return { top: 0 };
