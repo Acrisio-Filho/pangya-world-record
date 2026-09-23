@@ -15,6 +15,7 @@ const confirm = useConfirmStore();
 const lookups = useLookupsStore();
 
 const recs = ref([]);
+const loadingRecs = ref(false);
 const editId = ref("");
 const saving = ref(false);
 const errors = reactive({ course: "", power: "", method: "", wind: "", score: "", pang: "", screenshot: "", video: "" });
@@ -35,9 +36,12 @@ const isEditing = computed(() => !!editId.value);
 const showSemAjudaNotice = computed(() => form.method === "sem_ajuda");
 
 async function reloadMine() {
-  const result = await apiGet("listRecords", { user_id: auth.user.id, status: "all" });
-  if (!Array.isArray(result)) throw new Error(result?.erro || "Falha ao carregar seus records");
-  recs.value = result;
+  loadingRecs.value = true;
+  try {
+    const result = await apiGet("listRecords", { user_id: auth.user.id, status: "all" });
+    if (!Array.isArray(result)) throw new Error(result?.erro || "Falha ao carregar seus records");
+    recs.value = result;
+  } finally { loadingRecs.value = false; }
 }
 
 function resetForm() {
@@ -65,10 +69,10 @@ function startEdit(r) {
 async function onSubmit() {
   if (saving.value) return;
   Object.keys(errors).forEach(key => { errors[key] = ""; });
-  errors.course = form.course_id ? "" : "Escolha o course da partida.";
-  errors.power = Number.isFinite(Number(form.power_value)) && String(form.power_value).trim() !== "" ? "" : "Informe a força usada na partida.";
-  errors.method = form.method ? "" : "Escolha se o record foi com ou sem ajuda.";
-  errors.wind = form.wind ? "" : "Escolha a condição de vento.";
+  errors.course = !isEditing.value && !form.course_id ? "Escolha o course da partida." : "";
+  errors.power = !isEditing.value && (!Number.isFinite(Number(form.power_value)) || String(form.power_value).trim() === "") ? "Informe a força usada na partida." : "";
+  errors.method = !isEditing.value && !form.method ? "Escolha se o record foi com ou sem ajuda." : "";
+  errors.wind = !isEditing.value && !form.wind ? "Escolha a condição de vento." : "";
   errors.score = Number.isFinite(Number(form.score)) && String(form.score).trim() !== "" ? "" : "Informe o score da partida.";
   errors.pang = form.pang === "" || (Number.isFinite(Number(form.pang)) && Number(form.pang) >= 0) ? "" : "Pang precisa ser um número igual ou maior que zero.";
   errors.screenshot = !form.screenshot_url || safeUrl(form.screenshot_url) !== "#" ? "" : "Use um link de print começando com http:// ou https://.";
@@ -76,15 +80,17 @@ async function onSubmit() {
   if (showSemAjudaNotice.value && !form.video_url.trim()) errors.video = "Para records sem ajuda, envie o link do vídeo.";
   if (Object.values(errors).some(Boolean)) return;
   const base = {
+    ...(isEditing.value ? {} : {
     course_id: form.course_id,
     power_value: Number(form.power_value),
-    score: Number(form.score),
-    pang: Number(form.pang || 0),
     method: form.method,
     wind: form.wind,
+    ...(form.powerband_id ? { powerband_id: form.powerband_id } : {}),
+    }),
+    score: Number(form.score),
+    pang: Number(form.pang || 0),
     screenshot_url: form.screenshot_url.trim(),
     video_url: form.video_url.trim(),
-    ...(form.powerband_id ? { powerband_id: form.powerband_id } : {}),
   };
   saving.value = true;
   try {
@@ -92,9 +98,11 @@ async function onSubmit() {
   if (r.erro) return toast.error(r.erro);
   toast.success(
     r.proposal
-      ? "Melhoria enviada como proposta — o original segue valendo até aprovação total."
+      ? r.communityReview
+        ? "Mudança enviada ao admin. Após aprovação, o record voltará para votação da comunidade."
+        : "Provas enviadas ao admin. O record atual permanece no ranking até a aprovação."
       : editId.value
-      ? "Salvo! Voltou para pendente."
+      ? "Salvo e enviado para revisão do admin."
       : r.updated
       ? "Course + força + método já existiam — record atualizado e voltou para pendente."
       : "Enviado! Aguarde validação do admin."
@@ -121,30 +129,31 @@ onMounted(async () => {
 <template>
   <div>
     <h1 class="mb-1 text-2xl font-bold text-slate-50">Meus records</h1>
-    <p class="mb-5 text-sm text-slate-400">Edições e novos envios voltam para <i>pendente</i> até validação do admin.</p>
+    <p class="mb-5 text-sm text-slate-400">Toda alteração passa pela revisão do admin. Em records publicados, mudar score ou Pang exige nova votação da comunidade.</p>
 
     <section class="card mb-8">
       <h2 class="section-title mb-3">{{ isEditing ? "Editar record" : "Enviar record" }}</h2>
       <div class="mb-4 rounded-lg border border-amber-800/40 bg-amber-950/30 px-3 py-2 text-sm text-amber-300">
         ⚠️ <b>Sem vídeo, dificilmente a comunidade aprova.</b> Envie o link do vídeo da partida — só print quase nunca passa na votação. E jogue com <b>Hole Cup Size x1 (normal)</b>.
       </div>
+      <p v-if="isEditing" class="mb-4 rounded-lg border border-sky-500/25 bg-sky-500/5 px-3 py-2 text-sm text-sky-100">Você pode editar apenas <b>score, Pang, vídeo e print</b>. Os demais dados são preservados e só podem ser ajustados pelo administrador.</p>
       <p v-if="auth.user?.status === 'blocked'" class="mb-4 text-amber-300 text-sm" role="status">Sua conta está aguardando liberação do administrador para enviar records.</p>
       <form class="grid gap-3 sm:grid-cols-2" novalidate @submit.prevent="onSubmit">
-        <div class="field-control"><AppSelect aria-label="Campo" v-model="form.course_id" required class="field" @change="errors.course = ''">
+        <div class="field-control"><AppSelect aria-label="Campo" v-model="form.course_id" required :disabled="isEditing" class="field" @change="errors.course = ''">
           <option value="">Course...</option>
           <option v-for="c in lookups.activeCourses" :key="c.id" :value="c.id">{{ c.name }}</option>
         </AppSelect><p v-if="errors.course" class="form-error">{{ errors.course }}</p></div>
-        <div class="field-control"><input aria-label="Força" v-model="form.power_value" type="number" placeholder="Força (ex: 245)" required class="field" @input="errors.power = ''" /><p v-if="errors.power" class="form-error">{{ errors.power }}</p></div>
-        <AppSelect aria-label="Faixa de força" v-model="form.powerband_id" class="field">
+        <div class="field-control"><input aria-label="Força" v-model="form.power_value" type="number" placeholder="Força (ex: 245)" required :disabled="isEditing" class="field" @input="errors.power = ''" /><p v-if="errors.power" class="form-error">{{ errors.power }}</p></div>
+        <AppSelect aria-label="Faixa de força" v-model="form.powerband_id" :disabled="isEditing" class="field">
           <option value="">Faixa auto (recomendado)</option>
           <option v-for="b in lookups.activeBands" :key="b.id" :value="b.id">{{ b.label }}</option>
         </AppSelect>
-        <div class="field-control"><AppSelect aria-label="Método" v-model="form.method" required class="field" @change="errors.method = ''">
+        <div class="field-control"><AppSelect aria-label="Método" v-model="form.method" required :disabled="isEditing" class="field" @change="errors.method = ''">
           <option value="">Método...</option>
           <option value="sem_ajuda">Sem ajuda — só o jogo aberto</option>
           <option value="com_ajuda">Com ajuda — com programas</option>
         </AppSelect><p v-if="errors.method" class="form-error">{{ errors.method }}</p></div>
-        <div class="field-control"><AppSelect aria-label="Vento" v-model="form.wind" required class="field" @change="errors.wind = ''">
+        <div class="field-control"><AppSelect aria-label="Vento" v-model="form.wind" required :disabled="isEditing" class="field" @change="errors.wind = ''">
           <option value="">Vento...</option>
           <option value="normal">Normal</option>
           <option value="natural">Natural</option>
@@ -157,7 +166,7 @@ onMounted(async () => {
         <div class="field-control"><input aria-label="URL do print" v-model="form.screenshot_url" type="url" placeholder="URL do print (opcional)" class="field" @input="errors.screenshot = ''" /><p v-if="errors.screenshot" class="form-error">{{ errors.screenshot }}</p></div>
         <div class="field-control"><input aria-label="URL do vídeo" v-model="form.video_url" :required="showSemAjudaNotice" type="url" :placeholder="showSemAjudaNotice ? 'Vídeo: YouTube, Twitch… (obrigatório)' : 'Vídeo: YouTube, Twitch… (opcional)'" class="field" @input="errors.video = ''" /><p v-if="errors.video" class="form-error">{{ errors.video }}</p></div>
         <div class="flex gap-2 sm:col-span-2">
-          <button class="btn-primary" :disabled="saving || auth.user?.status === 'blocked'">{{ saving ? "Enviando…" : isEditing ? "Salvar (volta p/ pendente)" : "Enviar p/ validação" }}</button>
+          <button class="btn-primary" :disabled="saving || auth.user?.status === 'blocked'">{{ saving ? "Enviando…" : isEditing ? "Enviar para revisão" : "Enviar p/ validação" }}</button>
           <button type="button" class="btn-secondary" @click="resetForm">Limpar</button>
         </div>
       </form>
@@ -165,7 +174,7 @@ onMounted(async () => {
 
     <section>
       <h2 class="section-title mb-3">Minha tabela</h2>
-      <RecordsTable :records="recs" :show-status="true" :show-community="true" :show-type="true" :show-note="true" :show-user="false" empty-text="Sem records.">
+      <RecordsTable :records="recs" :loading="loadingRecs" :show-status="true" :show-community="true" :show-type="true" :show-note="true" :show-user="false" empty-text="Sem records.">
         <template #actions="{ record: r }">
           <div class="flex flex-wrap gap-1.5">
             <button

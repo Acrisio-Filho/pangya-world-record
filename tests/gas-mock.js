@@ -28,6 +28,7 @@ function loadSheet(name) {
 
 function loadApi() {
   const sandbox = {};
+  const cache = new Map();
   sandbox.SpreadsheetApp = { getActiveSpreadsheet: () => ({ getSheetByName: loadSheet }) };
   sandbox.ContentService = {
     MimeType: { JSON: "json" },
@@ -39,6 +40,13 @@ function loadApi() {
     getUuid: () => crypto.randomUUID(),
   };
   sandbox.LockService = { getScriptLock: () => ({ waitLock: () => {}, releaseLock: () => {} }) };
+  sandbox.CacheService = {
+    getScriptCache: () => ({
+      get: key => cache.get(key) || null,
+      put: (key, value) => cache.set(key, value),
+      remove: key => cache.delete(key),
+    }),
+  };
   // tokeninfo do Google: no dev, lê os claims do JWT real para reproduzir
   // e-mail, sub e foto. Tokens curtos preservam o fallback determinístico dos testes.
   sandbox.UrlFetchApp = {

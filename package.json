@@ -5,7 +5,6 @@
     "build": "npm run build:backend && npm --prefix frontend run build",
     "demo:reset": "PWR_DEMO_SEED=1 node tests/setup.js",
     "dev": "npm run demo:reset && npm run build && node tests/server.js",
-    "dev:real": "PWR_DATA_MODE=real npm run dev",
     "test": "node scripts/build-backend.js --check && node tests/run.js",
     "start": "node tests/server.js"
   }

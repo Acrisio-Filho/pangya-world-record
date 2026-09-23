@@ -1,6 +1,10 @@
 const ORIGEM_TOKEN = "TROQUE_ISSO_pwr_123"; // igual ao frontend/js/config.js
 const SALT = "TROQUE_ISSO_salt_bem_longo"; // usado no hash da senha
 const SESSION_DIAS = 30;
+const SESSION_IDLE_MINUTES = 30;
+const SESSION_HEARTBEAT_MINUTES = 5;
+const LOGIN_MAX_ATTEMPTS = 5;
+const LOGIN_WINDOW_SECONDS = 5 * 60;
 // Login Google (GIS): Client ID é público por desenho (vai no JS). Troque pelo seu
 // (console.cloud.google.com → APIs e serviços → Credenciais → ID do cliente OAuth).
 const GOOGLE_CLIENT_ID = "TROQUE_ISSO_google_client_id"; // igual ao frontend/js/config.js
@@ -15,6 +19,12 @@ const PTS_IMPROVE_COM = 12; // melhoria aceita pela comunidade (metade)
 const METHODS = ["sem_ajuda", "com_ajuda"];
 // Vento: normal ou natural (parte da categoria, como o método)
 const WINDS = ["normal", "natural"];
+// Cache de snapshots das abas: reduz chamadas caras ao Sheets nas leituras
+// públicas. Toda escrita abaixo invalida a respectiva aba imediatamente.
+// O limite individual do CacheService é 100 KB; snapshots maiores continuam
+// funcionando sem cache.
+const SHEET_CACHE_TTL_SECONDS = 60;
+const SHEET_CACHE_MAX_BYTES = 90 * 1024;
 function _methodLabel(m) {
   return m === "sem_ajuda" ? "Sem ajuda" : m === "com_ajuda" ? "Com ajuda" : String(m || "");
 }
@@ -24,10 +34,60 @@ function _out(obj) {
 }
 function _ss() { return SpreadsheetApp.getActiveSpreadsheet(); }
 function _sheet(name) { return _ss().getSheetByName(name); }
+function _sheetCache() {
+  try { return typeof CacheService !== "undefined" ? CacheService.getScriptCache() : null; } catch (_) { return null; }
+}
+function _sheetCacheKey(name) { return "pwr:snapshot:v1:" + String(name); }
+function _clearSheetCache(name) {
+  const cache = _sheetCache();
+  if (!cache) return;
+  try { cache.remove(_sheetCacheKey(name)); } catch (_) { /* cache é opcional */ }
+}
+function _loginCacheKey(email) { return "pwr:login-attempts:v1:" + _hash(String(email || "").toLowerCase().trim()); }
+function _loginBlocked(email) {
+  const cache = _sheetCache();
+  if (!cache) return false;
+  try {
+    const raw = cache.get(_loginCacheKey(email));
+    const data = raw ? JSON.parse(raw) : null;
+    return !!data && Number(data.failures || 0) >= LOGIN_MAX_ATTEMPTS;
+  } catch (_) { return false; }
+}
+function _registerFailedLogin(email) {
+  const cache = _sheetCache();
+  if (!cache) return;
+  try {
+    const key = _loginCacheKey(email);
+    const current = JSON.parse(cache.get(key) || "{}");
+    cache.put(key, JSON.stringify({ failures: Number(current.failures || 0) + 1 }), LOGIN_WINDOW_SECONDS);
+  } catch (_) { /* proteção adicional: login continua disponível se o cache falhar */ }
+}
+function _clearFailedLogins(email) {
+  const cache = _sheetCache();
+  if (!cache) return;
+  try { cache.remove(_loginCacheKey(email)); } catch (_) { /* cache é opcional */ }
+}
 function _rows(name) {
+  const cache = _sheetCache();
+  const key = _sheetCacheKey(name);
+  if (cache) {
+    try {
+      const saved = cache.get(key);
+      if (saved) {
+        const v = JSON.parse(saved);
+        return v.length ? { header: v[0], rows: v.slice(1) } : { header: [], rows: [] };
+      }
+    } catch (_) { /* dado expirado/corrompido: lê a planilha normalmente */ }
+  }
   const sh = _sheet(name);
   if (!sh) return { header: [], rows: [] };
   const v = sh.getDataRange().getValues();
+  if (cache && v.length) {
+    try {
+      const serialized = JSON.stringify(v);
+      if (serialized.length <= SHEET_CACHE_MAX_BYTES) cache.put(key, serialized, SHEET_CACHE_TTL_SECONDS);
+    } catch (_) { /* cache é otimização, nunca bloqueia a leitura */ }
+  }
   if (v.length === 0) return { header: [], rows: [] };
   return { header: v[0], rows: v.slice(1) };
 }
@@ -46,6 +106,7 @@ function _page(arr, p) {
 }
 function _append(name, obj, header) {
   _sheet(name).appendRow(header.map(h => obj[h] !== undefined ? obj[h] : ""));
+  _clearSheetCache(name);
 }
 function _hash(s) {
   const bytes = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, SALT + s);
@@ -68,6 +129,7 @@ function _addPoints(userId, pts) {
   for (let i = 1; i < vals.length; i++) {
     if (String(vals[i][0]) === String(userId)) {
       sh.getRange(i + 1, ci + 1).setValue(Number(vals[i][ci] || 0) + pts);
+      _clearSheetCache("Users");
       return;
     }
   }
@@ -115,10 +177,26 @@ function _findUserById(id) {
 function _getSession(token) {
   if (!token) return null;
   const { header, rows } = _rows("Sessions");
-  for (const r of rows) {
+  const lastSeenIndex = header.indexOf("last_seen_at");
+  const now = new Date();
+  for (let i = 0; i < rows.length; i++) {
+    const r = rows[i];
     const s = _toObj(header, r);
     if (String(s.token) === String(token)) {
-      if (new Date(s.expires_at) < new Date()) return null;
+      const expired = new Date(s.expires_at) < now;
+      const lastSeen = lastSeenIndex >= 0 && s.last_seen_at ? new Date(s.last_seen_at) : null;
+      const idle = lastSeen && now - lastSeen > SESSION_IDLE_MINUTES * 60 * 1000;
+      if (expired || idle) {
+        _sheet("Sessions").deleteRow(i + 2);
+        _clearSheetCache("Sessions");
+        return null;
+      }
+      // Não grava a cada request: a sessão continua sendo encerrada após 30 min
+      // sem atividade, com precisão de até cinco minutos e menos I/O no Sheets.
+      if (lastSeenIndex >= 0 && (!lastSeen || now - lastSeen >= SESSION_HEARTBEAT_MINUTES * 60 * 1000)) {
+        _sheet("Sessions").getRange(i + 2, lastSeenIndex + 1).setValue(now.toISOString());
+        _clearSheetCache("Sessions");
+      }
       return s;
     }
   }
@@ -132,7 +210,7 @@ function _pruneSessions() {
   if (ei < 0) return;
   const now = new Date();
   for (let i = vals.length - 1; i >= 1; i--) {
-    if (new Date(vals[i][ei]) < now) sh.deleteRow(i + 1);
+    if (new Date(vals[i][ei]) < now) { sh.deleteRow(i + 1); _clearSheetCache("Sessions"); }
   }
 }
 function _newSession(userId) {
@@ -140,7 +218,7 @@ function _newSession(userId) {
   const token = Utilities.getUuid();
   const exp = new Date(); exp.setDate(exp.getDate() + SESSION_DIAS);
   const { header } = _rows("Sessions");
-  _append("Sessions", { token, user_id: userId, expires_at: exp.toISOString() }, header);
+  _append("Sessions", { token, user_id: userId, expires_at: exp.toISOString(), last_seen_at: new Date().toISOString() }, header);
   return token;
 }
 function _authUser(e, payload) {
@@ -157,7 +235,7 @@ function _isLiveRow(head, r) {
   // live no index: approved + comunidade aprovou
   return RecordPolicy.isPublished(_toObj(head, r));
 }
-function _makeProposal(sh, head, col, origIdx, vals, u, data) {
+function _makeProposal(sh, head, col, origIdx, vals, u, data, preserveCommunity = false) {
   // Melhoria de record live: cria linha pendente ligada ao original (que segue valendo).
   const o = _toObj(head, vals[origIdx]);
   const rec = {
@@ -172,7 +250,9 @@ function _makeProposal(sh, head, col, origIdx, vals, u, data) {
     screenshot_url: String(data.screenshot_url !== undefined ? data.screenshot_url : (o.screenshot_url || "")),
     video_url: String(data.video_url !== undefined ? data.video_url : (o.video_url || "")),
     status: "pending", submitted_at: new Date().toISOString(), validated_by: "", validated_at: "",
-    note: "", is_best: "", community: "0", pts_admin: "", pts_com: "", edited: "TRUE"
+    // Mudança apenas nas provas ainda exige aprovação do admin, mas não
+    // descarta uma aprovação comunitária já obtida pelo mesmo score/Pang.
+    note: "", is_best: "", community: preserveCommunity ? "1" : "0", pts_admin: "", pts_com: "", edited: "TRUE"
   };
   const { header } = _rows("Records");
   _append("Records", rec, header);
@@ -214,6 +294,7 @@ function _recalcBest(courseId, bandId, method, wind) {
   const out = [];
   for (let i = 1; i < vals.length; i++) out.push([inCat[i] ? (i === best ? "TRUE" : "") : vals[i][ci]]);
   sh.getRange(2, ci + 1, vals.length - 1, 1).setValues(out);
+  _clearSheetCache("Records");
 }
 
 
@@ -222,10 +303,10 @@ function _table(name) {
   const sheet = _sheet(name);
   return {
     read: () => sheet.getDataRange().getValues(),
-    remove: row => sheet.deleteRow(row),
+    remove: row => { sheet.deleteRow(row); _clearSheetCache(name); },
     range: (...args) => ({
-      write: value => sheet.getRange(...args).setValue(value),
-      writeMany: values => sheet.getRange(...args).setValues(values),
+      write: value => { sheet.getRange(...args).setValue(value); _clearSheetCache(name); },
+      writeMany: values => { sheet.getRange(...args).setValues(values); _clearSheetCache(name); },
     }),
   };
 }

@@ -1,87 +1,116 @@
 # Pangya World Record
 
-Ranking da comunidade de Pangya, com frontend Vue 3 e um backend modular implantado como uma única aplicação Google Apps Script. Os dados continuam em uma planilha privada Google Sheets, compatível com o projeto [original de Acrisio Filho](https://acrisio-filho.github.io/pangya-world-record/).
+Site estático (GitHub Pages) + API (Google Apps Script) + Banco (Google Sheets privada).
 
-## Rodar localmente
+Escolhas do projeto:
+- **Stack:** `Sheets + Apps Script`
+- **Faixas de força:** configuráveis pelo admin (ex: 230-240, 241-250, 251-260, 261-270 — pode mudar sem mexer no código)
 
-Requer Node.js 22 e npm. Na raiz:
+## Setup rápido
+
+1. Crie a planilha Google com as abas do `docs/SHEETS_SCHEMA.md` (primeira linha = cabeçalho exato).
+2. Execute `npm run build:backend`. Em Extensões > Apps Script, cole `backend/Code.gs` e ajuste `ORIGEM_TOKEN`, `SALT` e `GOOGLE_CLIENT_ID`. No cliente OAuth em `console.cloud.google.com`, autorize a origem `https://acrisio-filho.github.io`.
+3. Implantar > Nova implantação > App da Web > Executar como: Você > Acesso: Qualquer pessoa > copie a URL `/exec`.
+4. No GitHub: Settings → Secrets and variables → Actions → crie `PWR_URL_EXEC` (URL `/exec`), `PWR_ORIGEM_TOKEN` (igual ao `Code.gs`) e `PWR_GOOGLE_CLIENT_ID` (igual ao `Code.gs`).
+5. Settings → Pages → Source: **GitHub Actions**. Uma alteração enviada à `main` publica `frontend/dist`, com `config.js` gerado dos secrets; o backend nunca vai para o Pages.
+
+## Desenvolvimento local
+
+Requer Node.js 22 e npm. Instale as dependências do frontend e inicie o ambiente local:
 
 ```sh
 npm ci --prefix frontend
 npm run dev
 ```
 
-Abra **http://localhost:8080/pangya-world-record/**. O comando gera o backend, compila o frontend e inicia a API local com CSVs em `tests/fixtures/`, inclusive quando existe `.env` ou `.env.local`. Para apontar temporariamente para a planilha real, configure `.env` a partir de `.env.production.example` e execute `npm run dev:real`.
+Abra [http://localhost:8080](http://localhost:8080). O comando restaura as fixtures locais, gera o backend, compila o frontend e serve a aplicação com API mock em `/exec`.
 
-O administrador de desenvolvimento é `admin@test.com`, senha `admin123`. Esta conta existe apenas nas fixtures locais. Uma instalação limpa começa sem records; cadastre/envie records pelo fluxo normal. `node tests/setup.js` **reseta** todos os dados locais de teste.
+Credenciais da fixture:
 
-Para trabalhar com atualização automática do frontend, mantenha a API local em execução e, em outro terminal, rode `npm --prefix frontend run dev`. O proxy do Vite encaminha `/exec` para a API local.
+| E-mail | Senha |
+| --- | --- |
+| `admin@test.com` | `admin123` |
+
+As fixtures ficam em `tests/fixtures/`. `npm run demo:reset` ou `node tests/setup.js` recria esses dados locais.
+
+Comandos disponíveis:
 
 ```sh
-npm test               # contrato HTTP + fluxos completos + domínio + links seguros
-npm run build          # gera Code.gs e frontend/dist
-npm run build:backend  # somente bundle do Apps Script
-npm start              # serve o build com mock; use PWR_DATA_MODE=real para API real
-npm run dev:real       # desenvolvimento contra a API real (inclui Google OAuth)
+npm run dev            # build + servidor local com fixtures
+npm run build          # gera backend/Code.gs e frontend/dist
+npm run build:backend  # gera apenas backend/Code.gs
+npm test               # contrato HTTP, domínio e verificações do frontend
+npm start              # serve o build já gerado com a API mock
 ```
 
-O teste de integração usa um diretório temporário isolado e não altera `tests/fixtures/` nem acessa sua planilha Google. Dados de verificações antigas podem continuar em `tests/fixtures/`; eles só são apagados se você executar explicitamente `node tests/setup.js`. `.env` e `.env.local` mantêm o mock por padrão; `PWR_DATA_MODE=real` é a escolha explícita para a API real.
+Para testar a API real sem criar outro script npm, copie `.env.example` para `.env`, preencha `URL_EXEC`, `ORIGEM_TOKEN` e `GOOGLE_CLIENT_ID`, gere o build e inicie explicitamente o servidor em modo real:
+
+```sh
+npm run build
+node tests/server.js 8080 real
+```
+
+Esse modo grava na planilha real. `.env` e `.env.local` sozinhos continuam usando o mock; isso evita alterações acidentais durante o desenvolvimento.
 
 ## Funcionalidades
 
-- Ranking público por campo, faixa de força, método, vento e nickname; menor score primeiro e maior Pang como desempate.
-- Layout responsivo, logo vetorial, hero ilustrado, navegação por teclado, filtros e estados de carregamento, erro e lista vazia.
-- Cadastro, login por senha ou Google, perfil e sessão revalidada pelo servidor.
-- Envio e edição de records com provas. Sem ajuda exige vídeo; contas novas precisam de liberação.
-- Melhorias em records publicados viram propostas, preservando o original até a aprovação final.
-- Votação ponderada, revisão administrativa, reabertura e pedidos de reavaliação.
-- Gestão de usuários, campos, faixas e records.
+- Ranking público com filtros por campo, faixa, método, vento e nickname.
+- BEST por categoria: campo + faixa + método + vento; menor score vence e Pang resolve empate.
+- Cadastro, login por senha e Google, perfil, troca de senha, privacidade e exclusão de conta. Novas contas começam bloqueadas e são liberadas pelo admin em Gerenciar → Revisar pedidos.
+- Records com vídeo e print; links de vídeo aceitam YouTube, Twitch, Vimeo, TikTok, Kick, Facebook e Instagram.
+- Fluxo de moderação: envio, revisão administrativa, votação comunitária ponderada, reabertura e reavaliação.
+- Usuários editam somente score, Pang, vídeo e print; toda alteração passa pelo admin. Em record publicado, score/Pang inicia nova votação comunitária, enquanto provas seguem apenas pela revisão administrativa.
+- Painel administrativo para pedidos, records, usuários, redefinição de senha e catálogo.
+- Tabelas responsivas, paginação, detalhes expansíveis e carregamento por demanda nas abas administrativas.
+- Leituras das abas usam cache de até 60 segundos no Apps Script; cada gravação invalida a aba alterada imediatamente.
+- Login por senha limita cinco tentativas falhas por e-mail a cada 5 minutos; sessões encerram após 30 minutos sem atividade. O Apps Script não expõe o IP remoto de forma confiável; limite por IP requer proxy/WAF na frente da API.
 
-## Estrutura e arquitetura
+## Regras de ranking e comunidade
+
+Um record só integra o ranking público quando possui `status=approved` e `community=1`. A aprovação manual pelo administrador também recalcula o BEST da categoria.
+
+A comunidade exige pelo menos três votantes, 50 pontos de peso e mais que o dobro do peso contrário. O dono não vota no próprio record. Administradores seguem as mesmas regras de participação: conta ativa e pelo menos 10 pontos.
+
+## Arquitetura
 
 ```text
 backend/src/
   modules/
-    identity/          # contas, autenticação e pontos
+    identity/          # contas, autenticação, sessão e pontos
     catalog/           # campos e faixas de força
-    records/           # record, proposta, ranking e moderação
-    community/         # votos e reavaliação
-  infrastructure/      # adaptadores Google e persistência
-  adapters/http.js     # entrada HTTP, parsing, origem e lock
-  composition.js       # composição e injeção das dependências
-backend/Code.gs        # artefato GERADO para implantação
+    records/           # records, propostas, ranking e BEST
+    community/         # votos, decisão e reavaliação
+  infrastructure/      # adaptadores Google Apps Script e Sheets
+  adapters/http.js     # entrada HTTP e proteção de origem
+  composition.js       # composição das dependências
+backend/Code.gs        # artefato gerado para Apps Script
 frontend/src/
-  modules/             # apresentação agrupada por contexto
-  components/          # componentes visuais compartilhados
-  stores/              # sessão, categorias e notificações
-  lib/                 # cliente HTTP e formatação
-scripts/               # build e configuração de publicação
-tests/                 # testes de domínio, contrato e mock de persistência
+  modules/             # telas por contexto de domínio
+  components/          # componentes de interface reutilizáveis
+  stores/              # sessão, catálogo, confirmação e notificações
+  lib/                 # cliente HTTP, validações e formatadores
+tests/                 # fixtures, mock e testes automatizados
 ```
 
-Leia [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) para limites dos módulos, portas, regras e decisões da migração. Edite `backend/src`, nunca o bundle gerado. `npm test` verifica se `Code.gs` corresponde às fontes.
+Leia [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) para as portas, limites e decisões. Edite `backend/src`; `backend/Code.gs` é gerado por `npm run build:backend`. O `npm test` confirma que o artefato gerado está sincronizado.
 
-## Google Sheets e publicação
+## Publicação
 
-1. Prepare as abas descritas em [docs/SHEETS_SCHEMA.md](docs/SHEETS_SCHEMA.md) e siga [backend/SHEETS_SETUP.md](backend/SHEETS_SETUP.md).
-2. Execute `npm run build:backend` e cole `backend/Code.gs` no Apps Script vinculado à planilha.
-3. Configure `ORIGEM_TOKEN`, `SALT` e `GOOGLE_CLIENT_ID` na cópia implantada; preserve o SALT existente ao atualizar para não invalidar senhas. Guarde esses valores fora do repositório.
-4. Implante como App da Web, executando como você, e copie a URL `/exec`.
-5. Configure os secrets do GitHub: `PWR_URL_EXEC`, `PWR_ORIGEM_TOKEN` e, para login Google, `PWR_GOOGLE_CLIENT_ID`.
-6. Em Settings → Pages, selecione GitHub Actions. O workflow testa, gera `frontend/public/config.js`, compila Vite e publica **apenas `frontend/dist`** quando você acionar a publicação ou enviar alterações à `main`.
+1. Prepare a planilha conforme [docs/SHEETS_SCHEMA.md](docs/SHEETS_SCHEMA.md) e [backend/SHEETS_SETUP.md](backend/SHEETS_SETUP.md).
+2. Execute `npm run build:backend` e publique o conteúdo de `backend/Code.gs` no Apps Script vinculado à planilha.
+3. No Apps Script, defina `ORIGEM_TOKEN`, `SALT` e `GOOGLE_CLIENT_ID`. Preserve o `SALT` existente em atualizações para não invalidar senhas.
+4. Implante como App da Web, executando como o proprietário da planilha, e guarde a URL terminada em `/exec`.
+5. No GitHub, configure os secrets `PWR_URL_EXEC`, `PWR_ORIGEM_TOKEN` e `PWR_GOOGLE_CLIENT_ID`.
+6. Configure GitHub Pages para usar GitHub Actions. O workflow executa testes, gera `frontend/public/config.js`, compila o frontend e publica `frontend/dist` ao enviar mudanças para `main` ou acioná-lo manualmente.
 
-O workflow não implanta o Apps Script: essa etapa é separada. As rotas usam hash (`#/community`) para funcionar ao recarregar no GitHub Pages. Configurações do navegador são públicas; a autorização é feita no backend. Não publique SALT, dados da planilha ou fixtures.
+O workflow não publica o Apps Script. As rotas usam hash, como `#/community`, para funcionar no GitHub Pages. As configurações do navegador são públicas: nunca inclua `SALT`, planilhas ou dados privados nelas.
 
-Para testar contra a API real, copie `.env.example` para `.env`, preencha os valores e execute `npm run build` seguido de `node tests/server.js 8080 real`. Esse modo grava na planilha real ao usar os formulários.
+## Arte e licença
 
-## Regras preservadas
-
-Uma categoria é campo + faixa de força + método + vento. Os estados de moderação e comunidade são separados: a publicação exige `status=approved` e `community=1`.
-
-A comunidade exige ao menos três votantes, peso de 50 e mais que o dobro do peso contrário. O proprietário não vota no próprio record. A aprovação comunitária volta à revisão final do administrador. Uma nova versão invalida votos da versão anterior. Os pontos e os valores pagos por propostas mantêm as regras do projeto original.
-
-## Arte e autoria
-
-A marca vetorial fica em `frontend/src/components/BrandLogo.vue` e `frontend/public/favicon.svg`. O hero fica em `frontend/public/images/pangya-hero.png`. Consulte [docs/VISUAL_ASSETS.md](docs/VISUAL_ASSETS.md) para o prompt e a origem da ilustração. É uma interpretação visual de fã, não material oficial do jogo.
+A marca fica em `frontend/src/components/BrandLogo.vue`, o favicon em `frontend/public/favicon.svg` e o hero em `frontend/public/images/pangya-hero.png`. Consulte [docs/VISUAL_ASSETS.md](docs/VISUAL_ASSETS.md) para a origem da ilustração. É uma interpretação visual de fã, sem vínculo oficial com o jogo.
 
 Código sob licença [MIT](LICENSE), preservando a atribuição ao projeto original.
+
+### 🌐 Github Pages
+
+Para usar essa aplicação é só [clicar aqui](https://acrisio-filho.github.io/pangya-world-record/).

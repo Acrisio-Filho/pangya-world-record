@@ -1,6 +1,6 @@
 // Application service: all outgoing dependencies are injected by the composition root.
 function createIdentityModule(ports) {
-  const { GOOGLE_CLIENT_ID, googleIdentity, ids, _append, _authUser, _effPoints, _findUserByEmail, _findUserById, _hash, _isAdmin, _newSession, _page, _publicUser, _recalcBest, _rows, _table, _toObj, _youtubeOk } = ports;
+  const { GOOGLE_CLIENT_ID, googleIdentity, ids, _append, _authUser, _clearFailedLogins, _effPoints, _findUserByEmail, _findUserById, _hash, _isAdmin, _loginBlocked, _newSession, _page, _publicUser, _recalcBest, _registerFailedLogin, _rows, _table, _toObj, _youtubeOk } = ports;
   const respond = value => value;
   const passwordOk = pass => pass.length >= 8 && /[A-Z]/.test(pass) && /[A-Za-z]/.test(pass) && /\d/.test(pass) && /[^A-Za-z0-9\s]/.test(pass);
   const nicknameTaken = (nickname, exceptId) => {
@@ -28,6 +28,15 @@ function createIdentityModule(ports) {
     const { header, rows } = _rows("Users");
     return respond(_page(rows.map(r => { const u = _toObj(header, r); return { id: u.id, nickname: u.nickname, email: u.email, role: u.role, status: u.status || "active", bio: u.bio || "", youtube_url: u.youtube_url || "", points: _effPoints(u), created_at: u.created_at }; }), e.parameter));
   }
+  if (action === "listPendingUsers") {
+    if (!_isAdmin(e)) return respond({ erro: "Só admin" });
+    const { header, rows } = _rows("Users");
+    const pending = rows.map(r => _toObj(header, r))
+      .filter(user => String(user.status || "blocked") === "blocked")
+      .sort((a, b) => String(b.created_at || "").localeCompare(String(a.created_at || "")))
+      .map(user => ({ id: user.id, nickname: user.nickname, email: user.email, created_at: user.created_at, login_google: !!user.google_sub }));
+    return respond(_page(pending, e.parameter));
+  }
   if (action === "register") {
     const nickname = String(payload.nickname || "").trim();
     const email = String(payload.email || "").toLowerCase().trim();
@@ -46,8 +55,14 @@ function createIdentityModule(ports) {
     return respond({ status: "ok", user: _publicUser(user) });
   }
   if (action === "login") {
-    const u = _findUserByEmail(payload.email || "");
-    if (!u || u.pass_hash !== _hash(String(payload.password || ""))) return respond({ erro: "Login inválido" });
+    const email = String(payload.email || "").toLowerCase().trim();
+    if (_loginBlocked(email)) return respond({ erro: "Muitas tentativas. Aguarde 5 minutos antes de tentar novamente." });
+    const u = _findUserByEmail(email);
+    if (!u || u.pass_hash !== _hash(String(payload.password || ""))) {
+      _registerFailedLogin(email);
+      return respond({ erro: "Login inválido" });
+    }
+    _clearFailedLogins(email);
     const token = _newSession(u.id);
     return respond({ status: "ok", token, user: _publicUser(u) });
   }

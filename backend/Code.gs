@@ -57,6 +57,10 @@ function effectivePoints(u, now) {
 const ORIGEM_TOKEN = "TROQUE_ISSO_pwr_123"; // igual ao frontend/js/config.js
 const SALT = "TROQUE_ISSO_salt_bem_longo"; // usado no hash da senha
 const SESSION_DIAS = 30;
+const SESSION_IDLE_MINUTES = 30;
+const SESSION_HEARTBEAT_MINUTES = 5;
+const LOGIN_MAX_ATTEMPTS = 5;
+const LOGIN_WINDOW_SECONDS = 5 * 60;
 // Login Google (GIS): Client ID é público por desenho (vai no JS). Troque pelo seu
 // (console.cloud.google.com → APIs e serviços → Credenciais → ID do cliente OAuth).
 const GOOGLE_CLIENT_ID = "TROQUE_ISSO_google_client_id"; // igual ao frontend/js/config.js
@@ -71,6 +75,12 @@ const PTS_IMPROVE_COM = 12; // melhoria aceita pela comunidade (metade)
 const METHODS = ["sem_ajuda", "com_ajuda"];
 // Vento: normal ou natural (parte da categoria, como o método)
 const WINDS = ["normal", "natural"];
+// Cache de snapshots das abas: reduz chamadas caras ao Sheets nas leituras
+// públicas. Toda escrita abaixo invalida a respectiva aba imediatamente.
+// O limite individual do CacheService é 100 KB; snapshots maiores continuam
+// funcionando sem cache.
+const SHEET_CACHE_TTL_SECONDS = 60;
+const SHEET_CACHE_MAX_BYTES = 90 * 1024;
 function _methodLabel(m) {
   return m === "sem_ajuda" ? "Sem ajuda" : m === "com_ajuda" ? "Com ajuda" : String(m || "");
 }
@@ -80,10 +90,60 @@ function _out(obj) {
 }
 function _ss() { return SpreadsheetApp.getActiveSpreadsheet(); }
 function _sheet(name) { return _ss().getSheetByName(name); }
+function _sheetCache() {
+  try { return typeof CacheService !== "undefined" ? CacheService.getScriptCache() : null; } catch (_) { return null; }
+}
+function _sheetCacheKey(name) { return "pwr:snapshot:v1:" + String(name); }
+function _clearSheetCache(name) {
+  const cache = _sheetCache();
+  if (!cache) return;
+  try { cache.remove(_sheetCacheKey(name)); } catch (_) { /* cache é opcional */ }
+}
+function _loginCacheKey(email) { return "pwr:login-attempts:v1:" + _hash(String(email || "").toLowerCase().trim()); }
+function _loginBlocked(email) {
+  const cache = _sheetCache();
+  if (!cache) return false;
+  try {
+    const raw = cache.get(_loginCacheKey(email));
+    const data = raw ? JSON.parse(raw) : null;
+    return !!data && Number(data.failures || 0) >= LOGIN_MAX_ATTEMPTS;
+  } catch (_) { return false; }
+}
+function _registerFailedLogin(email) {
+  const cache = _sheetCache();
+  if (!cache) return;
+  try {
+    const key = _loginCacheKey(email);
+    const current = JSON.parse(cache.get(key) || "{}");
+    cache.put(key, JSON.stringify({ failures: Number(current.failures || 0) + 1 }), LOGIN_WINDOW_SECONDS);
+  } catch (_) { /* proteção adicional: login continua disponível se o cache falhar */ }
+}
+function _clearFailedLogins(email) {
+  const cache = _sheetCache();
+  if (!cache) return;
+  try { cache.remove(_loginCacheKey(email)); } catch (_) { /* cache é opcional */ }
+}
 function _rows(name) {
+  const cache = _sheetCache();
+  const key = _sheetCacheKey(name);
+  if (cache) {
+    try {
+      const saved = cache.get(key);
+      if (saved) {
+        const v = JSON.parse(saved);
+        return v.length ? { header: v[0], rows: v.slice(1) } : { header: [], rows: [] };
+      }
+    } catch (_) { /* dado expirado/corrompido: lê a planilha normalmente */ }
+  }
   const sh = _sheet(name);
   if (!sh) return { header: [], rows: [] };
   const v = sh.getDataRange().getValues();
+  if (cache && v.length) {
+    try {
+      const serialized = JSON.stringify(v);
+      if (serialized.length <= SHEET_CACHE_MAX_BYTES) cache.put(key, serialized, SHEET_CACHE_TTL_SECONDS);
+    } catch (_) { /* cache é otimização, nunca bloqueia a leitura */ }
+  }
   if (v.length === 0) return { header: [], rows: [] };
   return { header: v[0], rows: v.slice(1) };
 }
@@ -102,6 +162,7 @@ function _page(arr, p) {
 }
 function _append(name, obj, header) {
   _sheet(name).appendRow(header.map(h => obj[h] !== undefined ? obj[h] : ""));
+  _clearSheetCache(name);
 }
 function _hash(s) {
   const bytes = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, SALT + s);
@@ -124,6 +185,7 @@ function _addPoints(userId, pts) {
   for (let i = 1; i < vals.length; i++) {
     if (String(vals[i][0]) === String(userId)) {
       sh.getRange(i + 1, ci + 1).setValue(Number(vals[i][ci] || 0) + pts);
+      _clearSheetCache("Users");
       return;
     }
   }
@@ -171,10 +233,26 @@ function _findUserById(id) {
 function _getSession(token) {
   if (!token) return null;
   const { header, rows } = _rows("Sessions");
-  for (const r of rows) {
+  const lastSeenIndex = header.indexOf("last_seen_at");
+  const now = new Date();
+  for (let i = 0; i < rows.length; i++) {
+    const r = rows[i];
     const s = _toObj(header, r);
     if (String(s.token) === String(token)) {
-      if (new Date(s.expires_at) < new Date()) return null;
+      const expired = new Date(s.expires_at) < now;
+      const lastSeen = lastSeenIndex >= 0 && s.last_seen_at ? new Date(s.last_seen_at) : null;
+      const idle = lastSeen && now - lastSeen > SESSION_IDLE_MINUTES * 60 * 1000;
+      if (expired || idle) {
+        _sheet("Sessions").deleteRow(i + 2);
+        _clearSheetCache("Sessions");
+        return null;
+      }
+      // Não grava a cada request: a sessão continua sendo encerrada após 30 min
+      // sem atividade, com precisão de até cinco minutos e menos I/O no Sheets.
+      if (lastSeenIndex >= 0 && (!lastSeen || now - lastSeen >= SESSION_HEARTBEAT_MINUTES * 60 * 1000)) {
+        _sheet("Sessions").getRange(i + 2, lastSeenIndex + 1).setValue(now.toISOString());
+        _clearSheetCache("Sessions");
+      }
       return s;
     }
   }
@@ -188,7 +266,7 @@ function _pruneSessions() {
   if (ei < 0) return;
   const now = new Date();
   for (let i = vals.length - 1; i >= 1; i--) {
-    if (new Date(vals[i][ei]) < now) sh.deleteRow(i + 1);
+    if (new Date(vals[i][ei]) < now) { sh.deleteRow(i + 1); _clearSheetCache("Sessions"); }
   }
 }
 function _newSession(userId) {
@@ -196,7 +274,7 @@ function _newSession(userId) {
   const token = Utilities.getUuid();
   const exp = new Date(); exp.setDate(exp.getDate() + SESSION_DIAS);
   const { header } = _rows("Sessions");
-  _append("Sessions", { token, user_id: userId, expires_at: exp.toISOString() }, header);
+  _append("Sessions", { token, user_id: userId, expires_at: exp.toISOString(), last_seen_at: new Date().toISOString() }, header);
   return token;
 }
 function _authUser(e, payload) {
@@ -213,7 +291,7 @@ function _isLiveRow(head, r) {
   // live no index: approved + comunidade aprovou
   return RecordPolicy.isPublished(_toObj(head, r));
 }
-function _makeProposal(sh, head, col, origIdx, vals, u, data) {
+function _makeProposal(sh, head, col, origIdx, vals, u, data, preserveCommunity = false) {
   // Melhoria de record live: cria linha pendente ligada ao original (que segue valendo).
   const o = _toObj(head, vals[origIdx]);
   const rec = {
@@ -228,7 +306,9 @@ function _makeProposal(sh, head, col, origIdx, vals, u, data) {
     screenshot_url: String(data.screenshot_url !== undefined ? data.screenshot_url : (o.screenshot_url || "")),
     video_url: String(data.video_url !== undefined ? data.video_url : (o.video_url || "")),
     status: "pending", submitted_at: new Date().toISOString(), validated_by: "", validated_at: "",
-    note: "", is_best: "", community: "0", pts_admin: "", pts_com: "", edited: "TRUE"
+    // Mudança apenas nas provas ainda exige aprovação do admin, mas não
+    // descarta uma aprovação comunitária já obtida pelo mesmo score/Pang.
+    note: "", is_best: "", community: preserveCommunity ? "1" : "0", pts_admin: "", pts_com: "", edited: "TRUE"
   };
   const { header } = _rows("Records");
   _append("Records", rec, header);
@@ -270,6 +350,7 @@ function _recalcBest(courseId, bandId, method, wind) {
   const out = [];
   for (let i = 1; i < vals.length; i++) out.push([inCat[i] ? (i === best ? "TRUE" : "") : vals[i][ci]]);
   sh.getRange(2, ci + 1, vals.length - 1, 1).setValues(out);
+  _clearSheetCache("Records");
 }
 
 
@@ -278,10 +359,10 @@ function _table(name) {
   const sheet = _sheet(name);
   return {
     read: () => sheet.getDataRange().getValues(),
-    remove: row => sheet.deleteRow(row),
+    remove: row => { sheet.deleteRow(row); _clearSheetCache(name); },
     range: (...args) => ({
-      write: value => sheet.getRange(...args).setValue(value),
-      writeMany: values => sheet.getRange(...args).setValues(values),
+      write: value => { sheet.getRange(...args).setValue(value); _clearSheetCache(name); },
+      writeMany: values => { sheet.getRange(...args).setValues(values); _clearSheetCache(name); },
     }),
   };
 }
@@ -295,7 +376,7 @@ const googleIdentity = {
 // --- modules/identity/application/service.js ---
 // Application service: all outgoing dependencies are injected by the composition root.
 function createIdentityModule(ports) {
-  const { GOOGLE_CLIENT_ID, googleIdentity, ids, _append, _authUser, _effPoints, _findUserByEmail, _findUserById, _hash, _isAdmin, _newSession, _page, _publicUser, _recalcBest, _rows, _table, _toObj, _youtubeOk } = ports;
+  const { GOOGLE_CLIENT_ID, googleIdentity, ids, _append, _authUser, _clearFailedLogins, _effPoints, _findUserByEmail, _findUserById, _hash, _isAdmin, _loginBlocked, _newSession, _page, _publicUser, _recalcBest, _registerFailedLogin, _rows, _table, _toObj, _youtubeOk } = ports;
   const respond = value => value;
   const passwordOk = pass => pass.length >= 8 && /[A-Z]/.test(pass) && /[A-Za-z]/.test(pass) && /\d/.test(pass) && /[^A-Za-z0-9\s]/.test(pass);
   const nicknameTaken = (nickname, exceptId) => {
@@ -323,6 +404,15 @@ function createIdentityModule(ports) {
     const { header, rows } = _rows("Users");
     return respond(_page(rows.map(r => { const u = _toObj(header, r); return { id: u.id, nickname: u.nickname, email: u.email, role: u.role, status: u.status || "active", bio: u.bio || "", youtube_url: u.youtube_url || "", points: _effPoints(u), created_at: u.created_at }; }), e.parameter));
   }
+  if (action === "listPendingUsers") {
+    if (!_isAdmin(e)) return respond({ erro: "Só admin" });
+    const { header, rows } = _rows("Users");
+    const pending = rows.map(r => _toObj(header, r))
+      .filter(user => String(user.status || "blocked") === "blocked")
+      .sort((a, b) => String(b.created_at || "").localeCompare(String(a.created_at || "")))
+      .map(user => ({ id: user.id, nickname: user.nickname, email: user.email, created_at: user.created_at, login_google: !!user.google_sub }));
+    return respond(_page(pending, e.parameter));
+  }
   if (action === "register") {
     const nickname = String(payload.nickname || "").trim();
     const email = String(payload.email || "").toLowerCase().trim();
@@ -341,8 +431,14 @@ function createIdentityModule(ports) {
     return respond({ status: "ok", user: _publicUser(user) });
   }
   if (action === "login") {
-    const u = _findUserByEmail(payload.email || "");
-    if (!u || u.pass_hash !== _hash(String(payload.password || ""))) return respond({ erro: "Login inválido" });
+    const email = String(payload.email || "").toLowerCase().trim();
+    if (_loginBlocked(email)) return respond({ erro: "Muitas tentativas. Aguarde 5 minutos antes de tentar novamente." });
+    const u = _findUserByEmail(email);
+    if (!u || u.pass_hash !== _hash(String(payload.password || ""))) {
+      _registerFailedLogin(email);
+      return respond({ erro: "Login inválido" });
+    }
+    _clearFailedLogins(email);
     const token = _newSession(u.id);
     return respond({ status: "ok", token, user: _publicUser(u) });
   }
@@ -654,7 +750,9 @@ function createRecordsModule(ports) {
     let recs = rows.map(r => _toObj(header, r));
     if (status !== "all") recs = recs.filter(x => String(x.status) === status);
     if (p.community === "1" || p.community === "0" || p.community === "-1") recs = recs.filter(x => Number(x.community || 0) === Number(p.community));
-    if (p.best === "1") recs = recs.filter(x => x.is_best === "TRUE");
+    // Sheets converte "TRUE" para booleano em algumas planilhas. Trate os dois
+    // formatos para que o BEST não suma do ranking em produção.
+    if (p.best === "1") recs = recs.filter(x => String(x.is_best).toUpperCase() === "TRUE");
     if (p.proposal === "1") recs = recs.filter(x => String(x.edit_of || "") !== "");
     if (p.edited === "1") recs = recs.filter(x => x.edited === "TRUE" && !x.edit_of);
     if (p.course_id) recs = recs.filter(x => String(x.course_id) === String(p.course_id));
@@ -838,6 +936,13 @@ function createRecordsModule(ports) {
     const isOwner = String(rec.user_id) === String(u.id);
     if (!isOwner && !isAdmin) return respond({ erro: "Só o dono pode editar" });
     if ((u.status || "active") !== "active") return respond({ erro: "Conta bloqueada — aguarde liberação do admin" });
+    // Gerenciar manda direct:true (só vale p/ admin). Fora dele, até o admin
+    // que é dono usa as mesmas permissões de jogador e entra na revisão.
+    const direct = isAdmin && payload.direct === true;
+    const ownerFields = ["score", "pang", "screenshot_url", "video_url"];
+    if (isOwner && !direct && Object.keys(data).some(key => !ownerFields.includes(key))) {
+      return respond({ erro: "Você só pode editar score, pang, vídeo e print. As demais informações são definidas na revisão." });
+    }
     // Validate the complete proposed version before any persistence operation.
     try { RecordDraft(Object.assign({}, rec, data)); } catch (error) { return respond({ erro: error.message }); }
     if (data.course_id !== undefined) {
@@ -851,9 +956,7 @@ function createRecordsModule(ports) {
     } else if (data.power_value !== undefined) resolvedBand = _bandForPower(Number(data.power_value));
     if ((data.powerband_id || data.power_value !== undefined) && !resolvedBand) return respond({ erro: "Faixa de força não encontrada p/ power_value=" + data.power_value });
     if (resolvedBand && String(resolvedBand.active).toUpperCase() !== "TRUE") return respond({ erro: "Faixa desativada" });
-    // Gerenciar manda direct:true (só vale p/ admin): edita direto qualquer um, inclusive o próprio.
     // Pelo Meus records todo mundo (inclusive admin) segue a regra comum: live vira proposta.
-    const direct = isAdmin && payload.direct === true;
     if (isOwner && !direct && _isLiveRow(head, vals[ri])) {
       // Dono melhorando o próprio record live (mesmo sendo admin): vira proposta,
       // original segue valendo. Só admin editando record DE TERCEIROS altera direto.
@@ -866,10 +969,14 @@ function createRecordsModule(ports) {
         const v = data.video_url !== undefined ? String(data.video_url) : String(rec.video_url || "");
         if (!v.trim()) return respond({ erro: "Sem ajuda exige vídeo de prova" });
       }
-      const id = _makeProposal(sh, head, col, ri, vals, u, data);
-      return respond({ status: "ok", id, proposal: true });
+      const scoreOrPangChanged = (data.score !== undefined && Number(data.score) !== Number(rec.score))
+        || (data.pang !== undefined && Number(data.pang) !== Number(rec.pang || 0));
+      // Proof-only updates go through the admin but retain the community
+      // decision; score/Pang changes create a new community review.
+      const id = _makeProposal(sh, head, col, ri, vals, u, data, !scoreOrPangChanged);
+      return respond({ status: "ok", id, proposal: true, communityReview: scoreOrPangChanged });
     }
-    const FIELDS = ["course_id", "power_value", "score", "pang", "screenshot_url", "video_url"];
+    const FIELDS = isOwner && !direct ? ownerFields : ["course_id", "power_value", "score", "pang", "screenshot_url", "video_url"];
     FIELDS.forEach(k => { if (data[k] !== undefined) sh.range(ri + 1, col(k)).write(data[k]); });
     if (data.wind !== undefined && col("wind") > 0) sh.range(ri + 1, col("wind")).write(String(data.wind));
     if (data.method !== undefined && col("method") > 0) sh.range(ri + 1, col("method")).write(String(data.method));
@@ -1066,12 +1173,12 @@ function createCommunityModule(ports) {
 
 // --- composition.js ---
 function createApplication() {
-  const identity = createIdentityModule({ GOOGLE_CLIENT_ID, googleIdentity, ids: { next: () => Utilities.getUuid() }, _append, _authUser, _effPoints, _findUserByEmail, _findUserById, _hash, _isAdmin, _newSession, _page, _publicUser, _recalcBest, _rows, _table, _toObj, _youtubeOk });
+  const identity = createIdentityModule({ GOOGLE_CLIENT_ID, googleIdentity, ids: { next: () => Utilities.getUuid() }, _append, _authUser, _clearFailedLogins, _effPoints, _findUserByEmail, _findUserById, _hash, _isAdmin, _loginBlocked, _newSession, _page, _publicUser, _recalcBest, _registerFailedLogin, _rows, _table, _toObj, _youtubeOk });
   const catalog = createCatalogModule({ ids: { next: () => Utilities.getUuid() }, _append, _authUser, _isAdmin, _recalcBest, _rows, _table, _toObj });
   const records = createRecordsModule({ METHODS, PTS_ADMIN_OK, PTS_IMPROVE_ADMIN, RecordPolicy, RecordDraft, ids: { next: () => Utilities.getUuid() }, WINDS, _addPoints, _append, _authUser, _bandForPower, _isLiveRow, _makeProposal, _page, _recalcBest, _rows, _table, _toObj, _urlOk });
   const community = createCommunityModule({ PTS_COM_OK, PTS_IMPROVE_COM, ids: { next: () => Utilities.getUuid() }, VotingPolicy, _addPoints, _append, _authUser, _effPoints, _recalcBest, _rows, _table, _tally, _toObj });
   return {
-    get: { getUser: identity, getMe: identity, listUsers: identity, listCourses: catalog, listBands: catalog, listRecords: records, listPending: records, tally: community, tallies: community, myVotes: community },
+    get: { getUser: identity, getMe: identity, listUsers: identity, listPendingUsers: identity, listCourses: catalog, listBands: catalog, listRecords: records, listPending: records, tally: community, tallies: community, myVotes: community },
     post: { register: identity, login: identity, loginGoogle: identity, logout: identity, updateMe: identity, changePassword: identity, deleteMe: identity, setUserStatus: identity, adminResetPassword: identity, upsertBand: catalog, upsertCourse: catalog, deleteBand: catalog, deleteCourse: catalog, submitRecord: records, validateRecord: records, updateRecord: records, vote: community, appealVote: community, reopenVote: community },
   };
 }
