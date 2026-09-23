@@ -63,6 +63,7 @@ Esse modo grava na planilha real. `.env` e `.env.local` sozinhos continuam usand
 - Painel administrativo para pedidos, records, usuários, redefinição de senha e catálogo.
 - Tabelas responsivas, paginação, detalhes expansíveis e carregamento por demanda nas abas administrativas.
 - Leituras das abas usam cache de até 60 segundos no Apps Script; cada gravação invalida a aba alterada imediatamente.
+- Login por senha limita cinco tentativas falhas por e-mail a cada 15 minutos; sessões encerram após 30 minutos sem atividade.
 
 ## Regras de ranking e comunidade
 

@@ -9,7 +9,7 @@ Detalhe de cada coluna: `docs/SHEETS_SCHEMA.md`.
 2. `Courses` → `id | name | active`
 3. `PowerBands` → `id | label | min | max | active`
 4. `Records` → `id | user_id | course_id | powerband_id | power_value | score | pang | method | wind | screenshot_url | video_url | status | submitted_at | validated_by | validated_at | note | is_best | community | pts_admin | pts_com | edited | edit_of`
-5. `Sessions` → `token | user_id | expires_at`
+5. `Sessions` → `token | user_id | expires_at | last_seen_at`
 6. `Votes` → `id | record_id | user_id | vote | weight | created_at`
 
 ## Como fazer
@@ -39,6 +39,7 @@ Detalhe de cada coluna: `docs/SHEETS_SCHEMA.md`.
 | `f3236bb` | `Records.edit_of` (proposta de melhoria ligada ao original; merge na aprovação final, metade dos pontos +5/+12). |
 | `c3ffdb4` | `Users.google_sub` (ID da conta Google; vazio quem nunca usou). Migração: adicione a coluna no fim da aba `Users`. |
 | Atual | `Users.avatar_url` (foto retornada e validada pelo Google). Migração: adicione a coluna no fim da aba `Users`. |
+| Atual | `Sessions.last_seen_at` (controle de inatividade). Migração: adicione a coluna no fim da aba `Sessions`. |
 | `8b078f2` | `reopenVote` (só código): admin reabre votação de `-1` (volta aprovado/0, apaga votos). `validateRecord` aceita `community` (`-1`/`0`/`1`). |
 | `7f062e8` | Rejeitado pela comunidade volta p/ `pending` (pedido no admin), não fica `approved`. `reopenVote` aceita `pending`. |
 | `3573239` | `appealVote` (só código): dono pede reavaliação de `approved/-1` sem editar. |

@@ -1,6 +1,32 @@
 import { defineStore } from "pinia";
 import { apiGet, apiPost } from "../lib/api";
 
+const IDLE_TIMEOUT_MS = 30 * 60 * 1000;
+let idleTimer = null;
+let idleStore = null;
+let idleListenersInstalled = false;
+let lastActivityAt = Date.now();
+
+function scheduleIdleExpiry() {
+  if (!idleStore?.token || typeof window === "undefined") return;
+  clearTimeout(idleTimer);
+  const remaining = IDLE_TIMEOUT_MS - (Date.now() - lastActivityAt);
+  if (remaining <= 0) return idleStore.expireForInactivity();
+  idleTimer = window.setTimeout(() => idleStore?.expireForInactivity(), remaining);
+}
+function registerActivity() {
+  if (!idleStore?.token) return;
+  if (Date.now() - lastActivityAt >= IDLE_TIMEOUT_MS) return idleStore.expireForInactivity();
+  lastActivityAt = Date.now();
+  scheduleIdleExpiry();
+}
+function installIdleListeners() {
+  if (idleListenersInstalled || typeof window === "undefined") return;
+  idleListenersInstalled = true;
+  ["pointerdown", "keydown", "touchstart", "focus"].forEach(event => window.addEventListener(event, registerActivity, { passive: true }));
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) scheduleIdleExpiry(); });
+}
+
 function readUser() {
   try {
     return JSON.parse(localStorage.getItem("pwr_user"));
@@ -26,6 +52,7 @@ export const useAuthStore = defineStore("auth", {
       this.user = user;
       localStorage.setItem("pwr_token", token);
       localStorage.setItem("pwr_user", JSON.stringify(user));
+      this.startIdleWatch();
     },
     clearSession() {
       this.meChecked = false;
@@ -33,6 +60,18 @@ export const useAuthStore = defineStore("auth", {
       this.user = null;
       localStorage.removeItem("pwr_token");
       localStorage.removeItem("pwr_user");
+      if (!this.token) clearTimeout(idleTimer);
+    },
+    startIdleWatch() {
+      idleStore = this;
+      lastActivityAt = Date.now();
+      installIdleListeners();
+      scheduleIdleExpiry();
+    },
+    expireForInactivity() {
+      if (!this.token) return;
+      this.clearSession();
+      window.dispatchEvent(new CustomEvent("pwr:session-expired"));
     },
     async login(email, password) {
       const r = await apiPost("login", { email, password });
@@ -65,6 +104,7 @@ export const useAuthStore = defineStore("auth", {
       if (me && !me.erro) {
         this.user = me;
         localStorage.setItem("pwr_user", JSON.stringify(me));
+        this.startIdleWatch();
         return me;
       }
       this.clearSession();

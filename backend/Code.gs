@@ -57,6 +57,10 @@ function effectivePoints(u, now) {
 const ORIGEM_TOKEN = "TROQUE_ISSO_pwr_123"; // igual ao frontend/js/config.js
 const SALT = "TROQUE_ISSO_salt_bem_longo"; // usado no hash da senha
 const SESSION_DIAS = 30;
+const SESSION_IDLE_MINUTES = 30;
+const SESSION_HEARTBEAT_MINUTES = 5;
+const LOGIN_MAX_ATTEMPTS = 5;
+const LOGIN_WINDOW_SECONDS = 15 * 60;
 // Login Google (GIS): Client ID é público por desenho (vai no JS). Troque pelo seu
 // (console.cloud.google.com → APIs e serviços → Credenciais → ID do cliente OAuth).
 const GOOGLE_CLIENT_ID = "TROQUE_ISSO_google_client_id"; // igual ao frontend/js/config.js
@@ -94,6 +98,30 @@ function _clearSheetCache(name) {
   const cache = _sheetCache();
   if (!cache) return;
   try { cache.remove(_sheetCacheKey(name)); } catch (_) { /* cache é opcional */ }
+}
+function _loginCacheKey(email) { return "pwr:login-attempts:v1:" + _hash(String(email || "").toLowerCase().trim()); }
+function _loginBlocked(email) {
+  const cache = _sheetCache();
+  if (!cache) return false;
+  try {
+    const raw = cache.get(_loginCacheKey(email));
+    const data = raw ? JSON.parse(raw) : null;
+    return !!data && Number(data.failures || 0) >= LOGIN_MAX_ATTEMPTS;
+  } catch (_) { return false; }
+}
+function _registerFailedLogin(email) {
+  const cache = _sheetCache();
+  if (!cache) return;
+  try {
+    const key = _loginCacheKey(email);
+    const current = JSON.parse(cache.get(key) || "{}");
+    cache.put(key, JSON.stringify({ failures: Number(current.failures || 0) + 1 }), LOGIN_WINDOW_SECONDS);
+  } catch (_) { /* proteção adicional: login continua disponível se o cache falhar */ }
+}
+function _clearFailedLogins(email) {
+  const cache = _sheetCache();
+  if (!cache) return;
+  try { cache.remove(_loginCacheKey(email)); } catch (_) { /* cache é opcional */ }
 }
 function _rows(name) {
   const cache = _sheetCache();
@@ -205,10 +233,26 @@ function _findUserById(id) {
 function _getSession(token) {
   if (!token) return null;
   const { header, rows } = _rows("Sessions");
-  for (const r of rows) {
+  const lastSeenIndex = header.indexOf("last_seen_at");
+  const now = new Date();
+  for (let i = 0; i < rows.length; i++) {
+    const r = rows[i];
     const s = _toObj(header, r);
     if (String(s.token) === String(token)) {
-      if (new Date(s.expires_at) < new Date()) return null;
+      const expired = new Date(s.expires_at) < now;
+      const lastSeen = lastSeenIndex >= 0 && s.last_seen_at ? new Date(s.last_seen_at) : null;
+      const idle = lastSeen && now - lastSeen > SESSION_IDLE_MINUTES * 60 * 1000;
+      if (expired || idle) {
+        _sheet("Sessions").deleteRow(i + 2);
+        _clearSheetCache("Sessions");
+        return null;
+      }
+      // Não grava a cada request: a sessão continua sendo encerrada após 30 min
+      // sem atividade, com precisão de até cinco minutos e menos I/O no Sheets.
+      if (lastSeenIndex >= 0 && (!lastSeen || now - lastSeen >= SESSION_HEARTBEAT_MINUTES * 60 * 1000)) {
+        _sheet("Sessions").getRange(i + 2, lastSeenIndex + 1).setValue(now.toISOString());
+        _clearSheetCache("Sessions");
+      }
       return s;
     }
   }
@@ -230,7 +274,7 @@ function _newSession(userId) {
   const token = Utilities.getUuid();
   const exp = new Date(); exp.setDate(exp.getDate() + SESSION_DIAS);
   const { header } = _rows("Sessions");
-  _append("Sessions", { token, user_id: userId, expires_at: exp.toISOString() }, header);
+  _append("Sessions", { token, user_id: userId, expires_at: exp.toISOString(), last_seen_at: new Date().toISOString() }, header);
   return token;
 }
 function _authUser(e, payload) {
@@ -332,7 +376,7 @@ const googleIdentity = {
 // --- modules/identity/application/service.js ---
 // Application service: all outgoing dependencies are injected by the composition root.
 function createIdentityModule(ports) {
-  const { GOOGLE_CLIENT_ID, googleIdentity, ids, _append, _authUser, _effPoints, _findUserByEmail, _findUserById, _hash, _isAdmin, _newSession, _page, _publicUser, _recalcBest, _rows, _table, _toObj, _youtubeOk } = ports;
+  const { GOOGLE_CLIENT_ID, googleIdentity, ids, _append, _authUser, _clearFailedLogins, _effPoints, _findUserByEmail, _findUserById, _hash, _isAdmin, _loginBlocked, _newSession, _page, _publicUser, _recalcBest, _registerFailedLogin, _rows, _table, _toObj, _youtubeOk } = ports;
   const respond = value => value;
   const passwordOk = pass => pass.length >= 8 && /[A-Z]/.test(pass) && /[A-Za-z]/.test(pass) && /\d/.test(pass) && /[^A-Za-z0-9\s]/.test(pass);
   const nicknameTaken = (nickname, exceptId) => {
@@ -378,8 +422,14 @@ function createIdentityModule(ports) {
     return respond({ status: "ok", user: _publicUser(user) });
   }
   if (action === "login") {
-    const u = _findUserByEmail(payload.email || "");
-    if (!u || u.pass_hash !== _hash(String(payload.password || ""))) return respond({ erro: "Login inválido" });
+    const email = String(payload.email || "").toLowerCase().trim();
+    if (_loginBlocked(email)) return respond({ erro: "Muitas tentativas. Aguarde 15 minutos antes de tentar novamente." });
+    const u = _findUserByEmail(email);
+    if (!u || u.pass_hash !== _hash(String(payload.password || ""))) {
+      _registerFailedLogin(email);
+      return respond({ erro: "Login inválido" });
+    }
+    _clearFailedLogins(email);
     const token = _newSession(u.id);
     return respond({ status: "ok", token, user: _publicUser(u) });
   }
@@ -1114,7 +1164,7 @@ function createCommunityModule(ports) {
 
 // --- composition.js ---
 function createApplication() {
-  const identity = createIdentityModule({ GOOGLE_CLIENT_ID, googleIdentity, ids: { next: () => Utilities.getUuid() }, _append, _authUser, _effPoints, _findUserByEmail, _findUserById, _hash, _isAdmin, _newSession, _page, _publicUser, _recalcBest, _rows, _table, _toObj, _youtubeOk });
+  const identity = createIdentityModule({ GOOGLE_CLIENT_ID, googleIdentity, ids: { next: () => Utilities.getUuid() }, _append, _authUser, _clearFailedLogins, _effPoints, _findUserByEmail, _findUserById, _hash, _isAdmin, _loginBlocked, _newSession, _page, _publicUser, _recalcBest, _registerFailedLogin, _rows, _table, _toObj, _youtubeOk });
   const catalog = createCatalogModule({ ids: { next: () => Utilities.getUuid() }, _append, _authUser, _isAdmin, _recalcBest, _rows, _table, _toObj });
   const records = createRecordsModule({ METHODS, PTS_ADMIN_OK, PTS_IMPROVE_ADMIN, RecordPolicy, RecordDraft, ids: { next: () => Utilities.getUuid() }, WINDS, _addPoints, _append, _authUser, _bandForPower, _isLiveRow, _makeProposal, _page, _recalcBest, _rows, _table, _toObj, _urlOk });
   const community = createCommunityModule({ PTS_COM_OK, PTS_IMPROVE_COM, ids: { next: () => Utilities.getUuid() }, VotingPolicy, _addPoints, _append, _authUser, _effPoints, _recalcBest, _rows, _table, _tally, _toObj });

@@ -33,7 +33,7 @@ const FILES = {
     ["id", "user_id", "course_id", "powerband_id", "power_value", "score", "pang", "method", "wind", "screenshot_url", "video_url", "status", "submitted_at", "validated_by", "validated_at", "note", "is_best", "community", "pts_admin", "pts_com", "edited", "edit_of"],
   ],
   "Votes.csv": [["id", "record_id", "user_id", "vote", "weight", "created_at"]],
-  "Sessions.csv": [["token", "user_id", "expires_at"]],
+  "Sessions.csv": [["token", "user_id", "expires_at", "last_seen_at"]],
 };
 
 // The regular test suite starts empty. The local demo can opt into this larger

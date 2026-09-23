@@ -7,8 +7,17 @@ import AppFooter from "./components/AppFooter.vue";
 import ToastStack from "./components/ToastStack.vue";
 import LoadingBar from "./components/LoadingBar.vue";
 import ConfirmModal from "./components/ConfirmModal.vue";
+import { onBeforeUnmount, onMounted } from "vue";
 import { useConfirmStore } from "./stores/confirm";
+import { useToastStore } from "./stores/toast";
 const confirm = useConfirmStore();
+const toast = useToastStore();
+function redirectExpiredSession() {
+  toast.info("Sua sessão foi encerrada após 30 minutos sem atividade.");
+  router.push({ name: "login", query: { reason: "idle" } });
+}
+onMounted(() => window.addEventListener("pwr:session-expired", redirectExpiredSession));
+onBeforeUnmount(() => window.removeEventListener("pwr:session-expired", redirectExpiredSession));
 </script>
 
 <template>

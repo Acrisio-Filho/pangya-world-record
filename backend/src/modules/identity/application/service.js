@@ -1,6 +1,6 @@
 // Application service: all outgoing dependencies are injected by the composition root.
 function createIdentityModule(ports) {
-  const { GOOGLE_CLIENT_ID, googleIdentity, ids, _append, _authUser, _effPoints, _findUserByEmail, _findUserById, _hash, _isAdmin, _newSession, _page, _publicUser, _recalcBest, _rows, _table, _toObj, _youtubeOk } = ports;
+  const { GOOGLE_CLIENT_ID, googleIdentity, ids, _append, _authUser, _clearFailedLogins, _effPoints, _findUserByEmail, _findUserById, _hash, _isAdmin, _loginBlocked, _newSession, _page, _publicUser, _recalcBest, _registerFailedLogin, _rows, _table, _toObj, _youtubeOk } = ports;
   const respond = value => value;
   const passwordOk = pass => pass.length >= 8 && /[A-Z]/.test(pass) && /[A-Za-z]/.test(pass) && /\d/.test(pass) && /[^A-Za-z0-9\s]/.test(pass);
   const nicknameTaken = (nickname, exceptId) => {
@@ -46,8 +46,14 @@ function createIdentityModule(ports) {
     return respond({ status: "ok", user: _publicUser(user) });
   }
   if (action === "login") {
-    const u = _findUserByEmail(payload.email || "");
-    if (!u || u.pass_hash !== _hash(String(payload.password || ""))) return respond({ erro: "Login inválido" });
+    const email = String(payload.email || "").toLowerCase().trim();
+    if (_loginBlocked(email)) return respond({ erro: "Muitas tentativas. Aguarde 15 minutos antes de tentar novamente." });
+    const u = _findUserByEmail(email);
+    if (!u || u.pass_hash !== _hash(String(payload.password || ""))) {
+      _registerFailedLogin(email);
+      return respond({ erro: "Login inválido" });
+    }
+    _clearFailedLogins(email);
     const token = _newSession(u.id);
     return respond({ status: "ok", token, user: _publicUser(u) });
   }

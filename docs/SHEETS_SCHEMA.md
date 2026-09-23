@@ -55,7 +55,8 @@ Crie uma planilha privada com estas 6 abas. A linha 1 de cada aba deve ter exata
 - `validated_by`: nickname/email do admin.
 
 ## 5. Sessions
-`token | user_id | expires_at`
+`token | user_id | expires_at | last_seen_at`
 
 - `token`: uuid, guardado no `localStorage` do navegador.
 - `expires_at`: +30 dias. Logout apaga a linha.
+- `last_seen_at`: última atividade autenticada; sessão expira após 30 minutos sem atividade.
