@@ -5,6 +5,7 @@ const fs = require("fs");
 const path = require("path");
 const vm = require("vm");
 const crypto = require("crypto");
+const zlib = require("zlib");
 
 const DIR = process.env.PWR_FIXTURES_DIR || path.join(__dirname, "fixtures");
 const SHEET_FILE = { Users: "Users.csv", Courses: "Courses.csv", PowerBands: "PowerBands.csv", Records: "Records.csv", Sessions: "Sessions.csv", Votes: "Votes.csv" };
@@ -38,6 +39,17 @@ function loadApi() {
     DigestAlgorithm: { SHA_256: "sha256" },
     computeDigest: (_alg, s) => Array.from(crypto.createHash("sha256").update(s).digest()),
     getUuid: () => crypto.randomUUID(),
+    newBlob: (value) => {
+      const bytes = Buffer.isBuffer(value) ? value : Buffer.from(value);
+      return { getBytes: () => Array.from(bytes), getDataAsString: () => bytes.toString("utf8") };
+    },
+    gzip: (blob) => {
+      const bytes = Buffer.from(blob.getBytes());
+      return sandbox.Utilities.newBlob(zlib.gzipSync(bytes));
+    },
+    ungzip: (blob) => sandbox.Utilities.newBlob(zlib.gunzipSync(Buffer.from(blob.getBytes()))),
+    base64EncodeWebSafe: (bytes) => Buffer.from(bytes).toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, ""),
+    base64DecodeWebSafe: (value) => Array.from(Buffer.from(String(value).replace(/-/g, "+").replace(/_/g, "/"), "base64")),
   };
   sandbox.LockService = { getScriptLock: () => ({ waitLock: () => {}, releaseLock: () => {} }) };
   sandbox.CacheService = {
