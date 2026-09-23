@@ -4,7 +4,7 @@ const SESSION_DIAS = 30;
 const SESSION_IDLE_MINUTES = 30;
 const SESSION_HEARTBEAT_MINUTES = 5;
 const LOGIN_MAX_ATTEMPTS = 5;
-const LOGIN_WINDOW_SECONDS = 15 * 60;
+const LOGIN_WINDOW_SECONDS = 5 * 60;
 // Login Google (GIS): Client ID é público por desenho (vai no JS). Troque pelo seu
 // (console.cloud.google.com → APIs e serviços → Credenciais → ID do cliente OAuth).
 const GOOGLE_CLIENT_ID = "TROQUE_ISSO_google_client_id"; // igual ao frontend/js/config.js

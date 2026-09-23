@@ -56,7 +56,7 @@ function createIdentityModule(ports) {
   }
   if (action === "login") {
     const email = String(payload.email || "").toLowerCase().trim();
-    if (_loginBlocked(email)) return respond({ erro: "Muitas tentativas. Aguarde 15 minutos antes de tentar novamente." });
+    if (_loginBlocked(email)) return respond({ erro: "Muitas tentativas. Aguarde 5 minutos antes de tentar novamente." });
     const u = _findUserByEmail(email);
     if (!u || u.pass_hash !== _hash(String(payload.password || ""))) {
       _registerFailedLogin(email);
